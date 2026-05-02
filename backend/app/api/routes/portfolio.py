@@ -9,6 +9,17 @@ from app.services.ml_insights import calculate_portfolio_score, detect_correlate
 from app.services.llm_service import generate_llm_summary
 from app.services.prediction_service import generate_prediction
 
+from app.db.repositories import (
+    HoldingsRepository,
+    PriceCacheRepository,
+    MetricSnapshotRepository
+)
+from app.core import cache as price_cache
+
+holdings_repo = HoldingsRepository()
+price_repo = PriceCacheRepository()
+snapshot_repo = MetricSnapshotRepository()
+
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
@@ -90,6 +101,20 @@ async def upload_portfolio(file: UploadFile = File(...)):
     logger.info(f"Portfolio uploaded: {len(holdings)} holdings from {file.filename}")
 
     result = enrich_portfolio(holdings)
+    
+    # Save holdings to DB
+    holdings_repo.upsert(result["holdings"])
+
+    # Cache prices in DB
+    for h in result["holdings"]:
+        if h.get("current_price"):
+            price_cache.set_price(
+                h["symbol"],
+                h["current_price"],
+                h.get("currency", "INR")
+            )
+
+    logger.info(f"Portfolio saved to DB: {len(holdings)} holdings")
 
     return {
         "message": "Portfolio uploaded successfully",
