@@ -1,112 +1,100 @@
-import io
 import logging
-import pandas as pd
-from fastapi import APIRouter, UploadFile, File, HTTPException
+from fastapi import APIRouter, UploadFile, File, HTTPException, Query
+from fastapi.responses import StreamingResponse
+from app.ingestion.factory import IngesterFactory
 from app.services.stock_service import enrich_portfolio
 from app.services.risk_service import calculate_risk_metrics
 from app.services.insights_engine import generate_rule_insights
-from app.services.ml_insights import calculate_portfolio_score, detect_correlated_stocks
+from app.services.ml_insights import (
+    calculate_portfolio_score, detect_correlated_stocks
+)
 from app.services.llm_service import generate_llm_summary
 from app.services.prediction_service import generate_prediction
-
+from app.services.template_generator import generate_template
+from app.services.instrument_service import sync_prices_to_master
 from app.db.repositories import (
     HoldingsRepository,
-    PriceCacheRepository,
     MetricSnapshotRepository
 )
 from app.core import cache as price_cache
 
-holdings_repo = HoldingsRepository()
-price_repo = PriceCacheRepository()
-snapshot_repo = MetricSnapshotRepository()
-
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-REQUIRED_COLUMNS = {"symbol", "quantity", "avg_buy_price"}
+holdings_repo = HoldingsRepository()
+snapshot_repo = MetricSnapshotRepository()
+
 MAX_FILE_SIZE_MB = 5
 MAX_HOLDINGS = 50
 
 
-def parse_dataframe(contents: bytes, filename: str) -> pd.DataFrame:
-    """Parse CSV or Excel file into DataFrame with encoding fallback."""
-    if filename.endswith(".csv"):
-        for encoding in ["utf-8", "utf-8-sig", "latin-1", "cp1252"]:
-            try:
-                return pd.read_csv(io.StringIO(contents.decode(encoding)))
-            except (UnicodeDecodeError, Exception):
-                continue
-        raise ValueError("Could not decode CSV file. Please save as UTF-8.")
-    else:
-        return pd.read_excel(io.BytesIO(contents))
-
-
-def validate_and_clean(df: pd.DataFrame) -> pd.DataFrame:
-    """Validate columns, clean data, return sanitized DataFrame."""
-    df.columns = df.columns.str.strip().str.lower().str.replace(" ", "_")
-
-    missing = REQUIRED_COLUMNS - set(df.columns)
-    if missing:
-        raise ValueError(f"Missing columns: {missing}. Required: symbol, quantity, avg_buy_price")
-
-    df = df[list(REQUIRED_COLUMNS | ({"sector"} & set(df.columns)))].copy()
-    df = df.dropna(subset=["symbol", "quantity", "avg_buy_price"])
-
-    df["symbol"] = df["symbol"].astype(str).str.strip().str.upper()
-    df["quantity"] = pd.to_numeric(df["quantity"], errors="coerce")
-    df["avg_buy_price"] = pd.to_numeric(df["avg_buy_price"], errors="coerce")
-    df = df.dropna(subset=["quantity", "avg_buy_price"])
-    df = df[(df["quantity"] > 0) & (df["avg_buy_price"] > 0)]
-
-    if "sector" in df.columns:
-        df["sector"] = df["sector"].astype(str).str.strip().str.title()
-
-    return df
-
-
-@router.post("/upload") 
-async def upload_portfolio(file: UploadFile = File(...)):
-    # File type check
-    allowed = (".csv", ".xlsx", ".xls")
-    if not any(file.filename.lower().endswith(ext) for ext in allowed):
-        raise HTTPException(status_code=400, detail="Only CSV or Excel files (.csv, .xlsx, .xls) allowed")
+@router.post("/upload")
+async def upload_portfolio(
+    file: UploadFile = File(...),
+    source: str = Query(default="auto")
+):
+    """
+    Upload portfolio from any source.
+    Auto-detects: CSV, Excel, Zerodha, Groww, PDF
+    """
+    fname = file.filename.lower()
+    allowed = (".csv", ".xlsx", ".xls", ".pdf")
+    if not any(fname.endswith(ext) for ext in allowed):
+        raise HTTPException(
+            status_code=400,
+            detail="Only CSV, Excel or PDF files allowed"
+        )
 
     contents = await file.read()
 
-    # File size check
-    size_mb = len(contents) / (1024 * 1024)
-    if size_mb > MAX_FILE_SIZE_MB:
-        raise HTTPException(status_code=400, detail=f"File too large. Max size is {MAX_FILE_SIZE_MB}MB")
+    if len(contents) / (1024 * 1024) > MAX_FILE_SIZE_MB:
+        raise HTTPException(
+            status_code=400,
+            detail=f"File too large. Max {MAX_FILE_SIZE_MB}MB"
+        )
 
+    # Smart source detection
+    source_type = (
+        IngesterFactory.detect_source(file.filename, contents)
+        if source == "auto" else source
+    )
+    logger.info(f"Detected source: {source_type}")
+
+    # Run ingestion pipeline
+    ingester = IngesterFactory.get(source_type)
     try:
-        df = parse_dataframe(contents, file.filename.lower())
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        result = ingester.process(contents)
     except Exception as e:
-        logger.error(f"File parse error: {e}")
-        raise HTTPException(status_code=400, detail="Could not parse file. Check format and try again.")
+        logger.error(f"Ingestion failed: {e}")
+        raise HTTPException(
+            status_code=422,
+            detail=f"Could not parse file: {str(e)}"
+        )
 
-    try:
-        df = validate_and_clean(df)
-    except ValueError as e:
-        raise HTTPException(status_code=422, detail=str(e))
+    holdings = result["holdings"]
+    if not holdings:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "No valid holdings found. "
+                f"{result['validation']['errors']}"
+            )
+        )
 
-    if len(df) == 0:
-        raise HTTPException(status_code=422, detail="No valid holdings found after cleaning.")
+    if len(holdings) > MAX_HOLDINGS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Too many holdings. Max {MAX_HOLDINGS}."
+        )
 
-    if len(df) > MAX_HOLDINGS:
-        raise HTTPException(status_code=422, detail=f"Too many holdings. Max is {MAX_HOLDINGS}.")
+    # Enrich with live prices
+    enriched = enrich_portfolio(holdings)
 
-    holdings = df.to_dict(orient="records")
-    logger.info(f"Portfolio uploaded: {len(holdings)} holdings from {file.filename}")
+    # Save to DB
+    holdings_repo.upsert(enriched["holdings"])
 
-    result = enrich_portfolio(holdings)
-    
-    # Save holdings to DB
-    holdings_repo.upsert(result["holdings"])
-
-    # Cache prices in DB
-    for h in result["holdings"]:
+    # Cache prices
+    for h in enriched["holdings"]:
         if h.get("current_price"):
             price_cache.set_price(
                 h["symbol"],
@@ -114,67 +102,105 @@ async def upload_portfolio(file: UploadFile = File(...)):
                 h.get("currency", "INR")
             )
 
-    logger.info(f"Portfolio saved to DB: {len(holdings)} holdings")
+    # Sync to instrument master
+    sync_prices_to_master(enriched["holdings"])
+
+    logger.info(
+        f"Upload complete: {len(holdings)} holdings "
+        f"from {source_type}"
+    )
 
     return {
         "message": "Portfolio uploaded successfully",
+        "source": source_type,
         "total_holdings": len(holdings),
-        "holdings": result["holdings"],
-        "summary": result["summary"]
+        "holdings": enriched["holdings"],
+        "summary": enriched["summary"],
+        "validation": result["validation"],
     }
+
+
+@router.get("/template")
+def download_template():
+    """Download the standard portfolio Excel template."""
+    return generate_template()
 
 
 @router.post("/risk")
 async def get_risk_metrics(payload: dict):
     holdings = payload.get("holdings", [])
     if not holdings:
-        raise HTTPException(status_code=400, detail="No holdings provided")
-    if len(holdings) > MAX_HOLDINGS:
-        raise HTTPException(status_code=400, detail="Too many holdings")
-
-    logger.info(f"Risk metrics requested for {len(holdings)} holdings")
-    metrics = calculate_risk_metrics(holdings)
-    return metrics
+        raise HTTPException(
+            status_code=400, detail="No holdings provided"
+        )
+    return calculate_risk_metrics(holdings)
 
 
 @router.post("/insights")
 async def get_insights(payload: dict):
-    holdings = payload.get("holdings", [])
-    risk_metrics = payload.get("risk_metrics", {})
-    summary = payload.get("summary", {})
+    holdings    = payload.get("holdings", [])
+    risk        = payload.get("risk_metrics", {})
+    summary     = payload.get("summary", {})
 
     if not holdings:
-        raise HTTPException(status_code=400, detail="No holdings provided")
+        raise HTTPException(
+            status_code=400, detail="No holdings provided"
+        )
 
-    # Layer 1 — Rules (free)
-    rule_insights = generate_rule_insights(holdings, summary, risk_metrics)
-
-    # Layer 2 — ML scoring (free)
-    portfolio_score = calculate_portfolio_score(holdings, risk_metrics)
-    correlated = detect_correlated_stocks(holdings)
-
-    # Layer 3 — LLM summary (Groq, free tier)
-    llm_summary = generate_llm_summary(holdings, risk_metrics, rule_insights, portfolio_score)
+    rule_insights    = generate_rule_insights(holdings, summary, risk)
+    portfolio_score  = calculate_portfolio_score(holdings, risk)
+    correlated       = detect_correlated_stocks(holdings)
+    llm_summary      = generate_llm_summary(
+        holdings, risk, rule_insights, portfolio_score
+    )
 
     return {
         "portfolio_score": portfolio_score,
         "llm_summary": llm_summary,
         "insights": rule_insights,
-        "correlated_groups": correlated
+        "correlated_groups": correlated,
     }
-    
+
 
 @router.get("/predict/{symbol}")
 async def predict_stock(symbol: str):
-    """Generate 30-day price prediction for a stock symbol."""
     symbol = symbol.upper().strip()
-    if not symbol:
-        raise HTTPException(status_code=400, detail="Symbol required")
-
-    logger.info(f"Prediction requested for {symbol}")
     result = generate_prediction(symbol)
-
     if "error" in result:
         raise HTTPException(status_code=422, detail=result["error"])
-
     return result
+
+
+@router.get("/history")
+async def get_history(
+    portfolio_id: str = "default",
+    days: int = 30
+):
+    snapshots = snapshot_repo.get_snapshots(portfolio_id, days)
+    return {"snapshots": snapshots, "days": days}
+
+
+@router.get("/instruments/search")
+async def search_instruments(q: str = Query(..., min_length=1)):
+    """Search instrument master table."""
+    from app.services.instrument_service import search_instruments
+    results = search_instruments(q)
+    return {"results": results, "query": q}
+
+
+@router.get("/aliases")
+async def get_symbol_aliases(limit: int = 50):
+    """See what symbol mappings have been learned."""
+    from app.core.database import get_connection
+    conn = get_connection()
+    try:
+        rows = conn.execute("""
+            SELECT raw_input, resolved_symbol,
+                   confidence, source, use_count
+            FROM symbol_aliases
+            ORDER BY use_count DESC
+            LIMIT ?
+        """, (limit,)).fetchall()
+        return {"aliases": [dict(r) for r in rows]}
+    finally:
+        conn.close()

@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS holdings (
     sector          TEXT,
     quantity        REAL NOT NULL,
     avg_buy_price   REAL NOT NULL,
+    confidence      REAL DEFAULT 1.0,
     source          TEXT DEFAULT 'csv',
     created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -91,6 +92,28 @@ CREATE TABLE IF NOT EXISTS alerts (
     acknowledged    INTEGER DEFAULT 0
 );
 
+CREATE TABLE IF NOT EXISTS instrument_master (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    symbol          TEXT UNIQUE NOT NULL,
+    name            TEXT,
+    exchange        TEXT,
+    currency        TEXT DEFAULT 'INR',
+    sector          TEXT,
+    last_price      REAL,
+    last_updated    TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS symbol_aliases (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    raw_input       TEXT NOT NULL,
+    resolved_symbol TEXT NOT NULL,
+    confidence      REAL NOT NULL,
+    source          TEXT,
+    use_count       INTEGER DEFAULT 1,
+    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(raw_input)
+);
+
 CREATE INDEX IF NOT EXISTS idx_holdings_portfolio
     ON holdings(portfolio_id);
 CREATE INDEX IF NOT EXISTS idx_price_history_symbol
@@ -101,6 +124,10 @@ CREATE INDEX IF NOT EXISTS idx_snapshots_portfolio
     ON metric_snapshots(portfolio_id, snapshot_date);
 CREATE INDEX IF NOT EXISTS idx_transactions_symbol
     ON transactions(symbol, txn_date);
+CREATE INDEX IF NOT EXISTS idx_instrument_master_symbol
+    ON instrument_master(symbol);
+CREATE INDEX IF NOT EXISTS idx_symbol_aliases_raw
+    ON symbol_aliases(raw_input);
 """
 
 
