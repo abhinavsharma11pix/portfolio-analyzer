@@ -1,149 +1,193 @@
 import logging
+import time
 import numpy as np
 import pandas as pd
 import yfinance as yf
-from datetime import datetime, timedelta
-from sklearn.linear_model import LinearRegression
-from sklearn.preprocessing import PolynomialFeatures
-from typing import Dict, List
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Dict, Optional
+
+from app.ml.feature_engineer import engineer_features
+from app.ml.arima_model import fit_arima
+from app.ml.rf_model import fit_random_forest
+from app.ml.gb_model import fit_gradient_boost
+from app.ml.ensemble import (
+    build_ensemble, compute_reliability, build_future_dates
+)
+from app.db.repositories import PredictionRepository
 
 logger = logging.getLogger(__name__)
 
-
-def fetch_historical(symbol: str, period: str = "1y") -> pd.DataFrame:
-    """Fetch historical OHLCV data for a symbol."""
-    try:
-        data = yf.download(symbol, period=period, auto_adjust=True, progress=False)
-        if data.empty:
-            return pd.DataFrame()
-        close = data["Close"].squeeze()
-        if isinstance(close, pd.Series):
-            df = close.reset_index()
-            df.columns = ["ds", "y"]
-            df = df.dropna()
-            return df
-        return pd.DataFrame()
-    except Exception as e:
-        logger.error(f"Error fetching {symbol}: {e}")
-        return pd.DataFrame()
+pred_repo = PredictionRepository()
+CACHE_TTL_HOURS = 6
 
 
-def predict_trend(df: pd.DataFrame, days: int = 30) -> Dict:
+def fetch_ohlcv(symbol: str, period: str = "2y") -> Optional[pd.DataFrame]:
+    """Fetch OHLCV with retry. 2 years for better model training."""
+    for attempt in range(3):
+        try:
+            data = yf.download(
+                symbol, period=period,
+                auto_adjust=True, progress=False
+            )
+            if not data.empty and len(data) >= 60:
+                return data
+        except Exception as e:
+            if attempt < 2:
+                time.sleep(1)
+            else:
+                logger.warning(f"OHLCV fetch failed for {symbol}: {e}")
+    return None
+
+
+def run_models_parallel(
+    features: pd.DataFrame,
+    prices: pd.Series,
+    horizon: int = 30
+) -> Dict:
+    """Run all 3 models in parallel for speed."""
+    results = {}
+
+    def run_arima():
+        return "arima", fit_arima(prices, horizon)
+
+    def run_rf():
+        return "rf", fit_random_forest(features, horizon)
+
+    def run_gb():
+        return "gb", fit_gradient_boost(features, horizon)
+
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        futures = [
+            executor.submit(run_arima),
+            executor.submit(run_rf),
+            executor.submit(run_gb),
+        ]
+        for future in as_completed(futures):
+            try:
+                name, result = future.result(timeout=60)
+                results[name] = result
+                if result:
+                    logger.info(f"✅ {name} succeeded → {result.get('model_name')}")
+                else:
+                    logger.warning(f"⚠️ {name} returned None")
+            except Exception as e:
+                logger.warning(f"Model future failed: {e}")
+
+    return results
+
+
+def generate_prediction(symbol: str, horizon: int = 30) -> Dict:
     """
-    Ensemble prediction using:
-    1. Polynomial regression (captures curves)
-    2. Exponential moving average projection
-    3. Linear regression baseline
+    Main prediction pipeline.
+    Cached → Feature Engineering → 3 Parallel Models → Ensemble → Return
     """
-    if df.empty or len(df) < 30:
-        return {"error": "Not enough historical data"}
+    symbol = symbol.upper().strip()
+    start  = time.time()
 
-    df = df.copy().reset_index(drop=True)
-    df["t"] = np.arange(len(df))
-    y = df["y"].values
-    t = df["t"].values.reshape(-1, 1)
+    # ── 1. Cache check ────────────────────────────────────────────
+    cached = pred_repo.get_prediction(symbol, horizon, CACHE_TTL_HOURS)
+    if cached:
+        logger.info(f"✅ Cache hit for {symbol}")
+        return {**cached, "from_cache": True}
 
-    # ── Model 1: Polynomial Regression (degree 3) ──────────────
-    poly = PolynomialFeatures(degree=3)
-    t_poly = poly.fit_transform(t)
-    poly_model = LinearRegression()
-    poly_model.fit(t_poly, y)
-
-    future_t = np.arange(len(df), len(df) + days).reshape(-1, 1)
-    future_t_poly = poly.transform(future_t)
-    poly_pred = poly_model.predict(future_t_poly)
-
-    # ── Model 2: EMA Projection ────────────────────────────────
-    ema_20 = pd.Series(y).ewm(span=20).mean().values
-    ema_slope = (ema_20[-1] - ema_20[-10]) / 10  # slope per day
-    ema_pred = np.array([ema_20[-1] + ema_slope * i for i in range(1, days + 1)])
-
-    # ── Model 3: Linear Regression ────────────────────────────
-    linear_model = LinearRegression()
-    linear_model.fit(t[-60:], y[-60:])  # last 60 days only
-    lin_pred = linear_model.predict(future_t)
-
-    # ── Ensemble: weighted average ─────────────────────────────
-    # Polynomial gets most weight as it captures trend curves
-    ensemble = (0.5 * poly_pred + 0.3 * ema_pred + 0.2 * lin_pred)
-
-    # ── Confidence Interval ────────────────────────────────────
-    # Based on historical volatility
-    recent_returns = pd.Series(y[-60:]).pct_change().dropna()
-    daily_vol = recent_returns.std()
-    confidence_factor = daily_vol * np.sqrt(np.arange(1, days + 1))
-
-    upper = ensemble * (1 + 1.96 * confidence_factor)
-    lower = ensemble * (1 - 1.96 * confidence_factor)
-
-    # Clip to reasonable bounds (±50% of current price)
-    current = float(y[-1])
-    max_val = current * 1.5
-    min_val = current * 0.5
-    ensemble = np.clip(ensemble, min_val, max_val)
-    upper = np.clip(upper, min_val, max_val * 1.2)
-    lower = np.clip(lower, min_val * 0.8, max_val)
-
-    # ── Build future dates (skip weekends) ────────────────────
-    last_date = pd.to_datetime(df["ds"].iloc[-1])
-    future_dates = []
-    current_date = last_date
-    while len(future_dates) < days:
-        current_date += timedelta(days=1)
-        if current_date.weekday() < 5:  # Mon-Fri only
-            future_dates.append(current_date)
-
-    # ── Historical data (last 90 days for chart) ───────────────
-    hist_df = df.tail(90).copy()
-    historical = [
-        {
-            "date": str(row["ds"])[:10],
-            "price": round(float(row["y"]), 2)
-        }
-        for _, row in hist_df.iterrows()
-    ]
-
-    # ── Forecast data ──────────────────────────────────────────
-    forecast = [
-        {
-            "date": str(future_dates[i])[:10],
-            "predicted": round(float(ensemble[i]), 2),
-            "upper": round(float(upper[i]), 2),
-            "lower": round(float(lower[i]), 2),
-        }
-        for i in range(days)
-    ]
-
-    predicted_price = round(float(ensemble[-1]), 2)
-    predicted_change = round(((predicted_price - current) / current) * 100, 2)
-    predicted_7d = round(float(ensemble[6]), 2)
-    predicted_7d_change = round(((predicted_7d - current) / current) * 100, 2)
-
-    return {
-        "symbol": "",
-        "current_price": round(current, 2),
-        "predicted_price_30d": predicted_price,
-        "predicted_change_pct_30d": predicted_change,
-        "predicted_price_7d": predicted_7d,
-        "predicted_change_pct_7d": predicted_7d_change,
-        "confidence_high": round(float(upper[-1]), 2),
-        "confidence_low": round(float(lower[-1]), 2),
-        "historical": historical,
-        "forecast": forecast,
-        "model": "Ensemble (Polynomial + EMA + Linear)",
-        "data_points": len(df)
-    }
-
-
-def generate_prediction(symbol: str) -> Dict:
-    """Main entry point — fetch data and predict."""
-    logger.info(f"Generating prediction for {symbol}")
-
-    df = fetch_historical(symbol, period="1y")
-
-    if df.empty:
+    # ── 2. Fetch data ─────────────────────────────────────────────
+    logger.info(f"Fetching OHLCV for {symbol}...")
+    ohlcv = fetch_ohlcv(symbol)
+    if ohlcv is None:
         return {"error": f"Could not fetch data for {symbol}"}
 
-    result = predict_trend(df, days=30)
-    result["symbol"] = symbol
+    prices = ohlcv["Close"].squeeze()
+    if not isinstance(prices, pd.Series):
+        return {"error": "Invalid price data format"}
+
+    # ── 3. Feature engineering ────────────────────────────────────
+    features = engineer_features(ohlcv)
+    if features is None:
+        return {"error": "Insufficient data for feature engineering (need 60+ days)"}
+
+    data_points   = len(prices)
+    current_price = float(prices.iloc[-1])
+    last_date     = prices.index[-1]
+
+    logger.info(
+        f"Running 3 models in parallel for {symbol} "
+        f"({data_points} data points)..."
+    )
+
+    # ── 4. Run models in parallel ─────────────────────────────────
+    model_results = run_models_parallel(features, prices, horizon)
+    models_ran    = sum(1 for v in model_results.values() if v)
+
+    if models_ran == 0:
+        return {"error": "All prediction models failed"}
+
+    # ── 5. Ensemble ───────────────────────────────────────────────
+    ensemble = build_ensemble(model_results, current_price, horizon)
+    if not ensemble:
+        return {"error": "Ensemble construction failed"}
+
+    # ── 6. Reliability score ──────────────────────────────────────
+    reliability = compute_reliability(model_results, data_points)
+
+    # ── 7. Future dates ───────────────────────────────────────────
+    future_dates = build_future_dates(last_date, horizon)
+
+    # ── 8. Historical for chart (last 90 days) ────────────────────
+    hist_90 = prices.tail(90)
+    historical = [
+        {"date": str(d)[:10], "price": round(float(p), 2)}
+        for d, p in zip(hist_90.index, hist_90.values)
+    ]
+
+    # ── 9. Build forecast chart data ─────────────────────────────
+    forecast = [
+        {
+            "date":      future_dates[i],
+            "predicted": ensemble["prices"][i],
+            "upper":     ensemble["upper"][i],
+            "lower":     ensemble["lower"][i],
+        }
+        for i in range(min(horizon, len(future_dates)))
+    ]
+
+    elapsed = round(time.time() - start, 2)
+    logger.info(
+        f"✅ {symbol} prediction complete in {elapsed}s | "
+        f"Models: {models_ran}/3 | "
+        f"Reliability: {reliability['grade']} ({reliability['score']})"
+    )
+
+    result = {
+        "symbol":           symbol,
+        "current_price":    current_price,
+        "predicted_price_7d":    ensemble["price_7d"],
+        "predicted_price_30d":   ensemble["price_30d"],
+        "predicted_change_pct_7d":  ensemble["change_pct_7d"],
+        "predicted_change_pct_30d": ensemble["change_pct_30d"],
+        "confidence_high":   ensemble["upper"][-1],
+        "confidence_low":    ensemble["lower"][-1],
+        "reliability":       reliability,
+        "model_breakdown":   ensemble["model_breakdown"],
+        "models_used":       ensemble["models_used"],
+        "historical":        historical,
+        "forecast":          forecast,
+        "data_points":       data_points,
+        "elapsed_seconds":   elapsed,
+        "from_cache":        False,
+    }
+
+    # ── 10. Cache result ──────────────────────────────────────────
+    try:
+        pred_repo.save_prediction(
+            symbol=symbol,
+            horizon_days=horizon,
+            predicted_price=ensemble["price_30d"],
+            confidence_high=ensemble["upper"][-1],
+            confidence_low=ensemble["lower"][-1],
+            model_used=",".join(ensemble["models_used"]),
+            reliability_score=reliability["score"],
+        )
+    except Exception as e:
+        logger.warning(f"Cache save failed: {e}")
+
     return result

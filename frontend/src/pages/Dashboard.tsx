@@ -11,6 +11,9 @@ import MarketStatusBar from '../components/MarketStatusBar'
 import PriceAlertBanner from '../components/PriceAlertBanner'
 import LivePriceTicker from '../components/LivePriceTicker'
 import { useWebSocket } from '../hooks/useWebSocket'
+import AdvancedMetrics from '../components/AdvancedMetrics'
+import BenchmarkChart from '../components/BenchmarkChart'
+import ScenarioSimulator from '../components/ScenarioSimulator'
 
 interface Holding {
   symbol: string
@@ -61,7 +64,6 @@ export default function Dashboard() {
     prices: livePrices,
     alerts,
     connected,
-    marketOpen,
     staleSymbols,
     lastUpdated,
     nextRefresh,
@@ -180,6 +182,32 @@ export default function Dashboard() {
                   riskMetrics={riskMetrics}
                   summary={portfolioData.summary}
                 />
+              </section>
+            )}
+            {/* Advanced Analytics */}
+            {riskMetrics && (
+              <section>
+                <h2 className="text-xl font-semibold text-white mb-4">
+                  🔬 Advanced Analytics
+                </h2>
+                <AdvancedMetrics
+                  holdings={enrichedHoldings}
+                  riskMetrics={riskMetrics}
+                />
+              </section>
+            )}
+
+            {/* Benchmark Comparison */}
+            {riskMetrics && (
+              <section>
+                <BenchmarkChart holdings={enrichedHoldings} />
+              </section>
+            )}
+
+            {/* Crash Simulator */}
+            {portfolioData && (
+              <section>
+                <ScenarioSimulator holdings={enrichedHoldings} />
               </section>
             )}
 

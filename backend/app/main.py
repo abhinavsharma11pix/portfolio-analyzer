@@ -4,9 +4,18 @@ import time
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+
+# Routers
 from app.api.routes import portfolio
+from app.api.routes.analytics import router as analytics_router
+from app.api.routes.websocket import router as ws_router
+
+# Core
 from app.db.migrations import run_migrations
 from app.core.market_calendar import market_status
+
+
+# -------------------- LOGGING -------------------- #
 
 logging.basicConfig(
     level=logging.INFO,
@@ -14,11 +23,17 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+
+# -------------------- APP INIT -------------------- #
+
 app = FastAPI(
     title="AI Portfolio Analyzer",
     description="Hedge-fund grade portfolio analysis",
     version="3.0.0"
 )
+
+
+# -------------------- MIDDLEWARE -------------------- #
 
 app.add_middleware(
     CORSMiddleware,
@@ -27,18 +42,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-@app.on_event("startup")
-async def startup():
-    logger.info("🚀 Starting AI Portfolio Analyzer v3...")
-    run_migrations()
-    logger.info("✅ Database ready")
-
-    # Import here to avoid circular imports
-    from app.core.price_broadcaster import broadcast_loop
-    asyncio.create_task(broadcast_loop())
-    logger.info("✅ WebSocket price broadcaster started")
 
 
 @app.middleware("http")
@@ -53,6 +56,24 @@ async def log_requests(request: Request, call_next):
     return response
 
 
+# -------------------- STARTUP -------------------- #
+
+@app.on_event("startup")
+async def startup():
+    logger.info("🚀 Starting AI Portfolio Analyzer v3...")
+
+    # DB
+    run_migrations()
+    logger.info("✅ Database ready")
+
+    # Background tasks
+    from app.core.price_broadcaster import broadcast_loop
+    asyncio.create_task(broadcast_loop())
+    logger.info("✅ WebSocket price broadcaster started")
+
+
+# -------------------- EXCEPTION HANDLER -------------------- #
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     logger.error(f"Unhandled error: {exc}")
@@ -61,21 +82,38 @@ async def global_exception_handler(request: Request, exc: Exception):
         content={"detail": "Internal server error"}
     )
 
-# HTTP routes
+
+# -------------------- ROUTES -------------------- #
+
+# Portfolio
 app.include_router(
     portfolio.router,
     prefix="/api/portfolio",
     tags=["Portfolio"]
 )
 
-# WebSocket route
-from app.api.routes.websocket import router as ws_router
-app.include_router(ws_router, tags=["WebSocket"])
+# Analytics
+app.include_router(
+    analytics_router,
+    prefix="/api/analytics",
+    tags=["Analytics"]
+)
 
+# WebSocket
+app.include_router(
+    ws_router,
+    tags=["WebSocket"]
+)
+
+
+# -------------------- HEALTH & META -------------------- #
 
 @app.get("/")
 def root():
-    return {"message": "AI Portfolio Analyzer API 🚀", "version": "3.0.0"}
+    return {
+        "message": "AI Portfolio Analyzer API 🚀",
+        "version": "3.0.0"
+    }
 
 
 @app.get("/health")
@@ -93,9 +131,17 @@ def db_status():
             WHERE type='table' ORDER BY name
         """).fetchall()
         conn.close()
-        return {"status": "connected", "tables": [t["name"] for t in tables]}
+
+        return {
+            "status": "connected",
+            "tables": [t["name"] for t in tables]
+        }
+
     except Exception as e:
-        return {"status": "error", "detail": str(e)}
+        return {
+            "status": "error",
+            "detail": str(e)
+        }
 
 
 @app.get("/api/market/status")
