@@ -33,10 +33,6 @@ async def upload_portfolio(
     file: UploadFile = File(...),
     source: str = Query(default="auto")
 ):
-    """
-    Upload portfolio from any source.
-    Auto-detects: CSV, Excel, Zerodha, Groww, PDF
-    """
     fname = file.filename.lower()
     allowed = (".csv", ".xlsx", ".xls", ".pdf")
     if not any(fname.endswith(ext) for ext in allowed):
@@ -53,14 +49,12 @@ async def upload_portfolio(
             detail=f"File too large. Max {MAX_FILE_SIZE_MB}MB"
         )
 
-    # Smart source detection
     source_type = (
         IngesterFactory.detect_source(file.filename, contents)
         if source == "auto" else source
     )
     logger.info(f"Detected source: {source_type}")
 
-    # Run ingestion pipeline
     ingester = IngesterFactory.get(source_type)
     try:
         result = ingester.process(contents)
@@ -75,10 +69,7 @@ async def upload_portfolio(
     if not holdings:
         raise HTTPException(
             status_code=422,
-            detail=(
-                "No valid holdings found. "
-                f"{result['validation']['errors']}"
-            )
+            detail=f"No valid holdings found. {result['validation']['errors']}"
         )
 
     if len(holdings) > MAX_HOLDINGS:
@@ -87,13 +78,10 @@ async def upload_portfolio(
             detail=f"Too many holdings. Max {MAX_HOLDINGS}."
         )
 
-    # Enrich with live prices
     enriched = enrich_portfolio(holdings)
 
-    # Save to DB
     holdings_repo.upsert(enriched["holdings"])
 
-    # Cache prices
     for h in enriched["holdings"]:
         if h.get("current_price"):
             price_cache.set_price(
@@ -102,13 +90,9 @@ async def upload_portfolio(
                 h.get("currency", "INR")
             )
 
-    # Sync to instrument master
     sync_prices_to_master(enriched["holdings"])
 
-    logger.info(
-        f"Upload complete: {len(holdings)} holdings "
-        f"from {source_type}"
-    )
+    logger.info(f"Upload complete: {len(holdings)} holdings from {source_type}")
 
     return {
         "message": "Portfolio uploaded successfully",
@@ -122,7 +106,6 @@ async def upload_portfolio(
 
 @router.get("/template")
 def download_template():
-    """Download the standard portfolio Excel template."""
     return generate_template()
 
 
@@ -130,34 +113,30 @@ def download_template():
 async def get_risk_metrics(payload: dict):
     holdings = payload.get("holdings", [])
     if not holdings:
-        raise HTTPException(
-            status_code=400, detail="No holdings provided"
-        )
+        raise HTTPException(status_code=400, detail="No holdings provided")
     return calculate_risk_metrics(holdings)
 
 
 @router.post("/insights")
 async def get_insights(payload: dict):
-    holdings    = payload.get("holdings", [])
-    risk        = payload.get("risk_metrics", {})
-    summary     = payload.get("summary", {})
+    holdings = payload.get("holdings", [])
+    risk     = payload.get("risk_metrics", {})
+    summary  = payload.get("summary", {})
 
     if not holdings:
-        raise HTTPException(
-            status_code=400, detail="No holdings provided"
-        )
+        raise HTTPException(status_code=400, detail="No holdings provided")
 
-    rule_insights    = generate_rule_insights(holdings, summary, risk)
-    portfolio_score  = calculate_portfolio_score(holdings, risk)
-    correlated       = detect_correlated_stocks(holdings)
-    llm_summary      = generate_llm_summary(
+    rule_insights   = generate_rule_insights(holdings, summary, risk)
+    portfolio_score = calculate_portfolio_score(holdings, risk)
+    correlated      = detect_correlated_stocks(holdings)
+    llm_summary     = generate_llm_summary(
         holdings, risk, rule_insights, portfolio_score
     )
 
     return {
         "portfolio_score": portfolio_score,
-        "llm_summary": llm_summary,
-        "insights": rule_insights,
+        "llm_summary":     llm_summary,
+        "insights":        rule_insights,
         "correlated_groups": correlated,
     }
 
@@ -182,7 +161,6 @@ async def get_history(
 
 @router.get("/instruments/search")
 async def search_instruments(q: str = Query(..., min_length=1)):
-    """Search instrument master table."""
     from app.services.instrument_service import search_instruments
     results = search_instruments(q)
     return {"results": results, "query": q}
@@ -190,7 +168,6 @@ async def search_instruments(q: str = Query(..., min_length=1)):
 
 @router.get("/aliases")
 async def get_symbol_aliases(limit: int = 50):
-    """See what symbol mappings have been learned."""
     from app.core.database import get_connection
     conn = get_connection()
     try:
