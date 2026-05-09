@@ -9,10 +9,13 @@ from fastapi.responses import JSONResponse
 from app.api.routes import portfolio
 from app.api.routes.analytics import router as analytics_router
 from app.api.routes.websocket import router as ws_router
+from app.api.routes.decisions import router as decisions_router
+
 
 # Core
 from app.db.migrations import run_migrations
 from app.core.market_calendar import market_status
+
 
 
 # -------------------- LOGGING -------------------- #
@@ -99,11 +102,19 @@ app.include_router(
     tags=["Analytics"]
 )
 
+app.include_router(
+    decisions_router,
+    prefix="/api/portfolio",
+    tags=["Decisions"]
+)
+
 # WebSocket
 app.include_router(
     ws_router,
     tags=["WebSocket"]
 )
+
+
 
 
 # -------------------- HEALTH & META -------------------- #

@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState, useCallback } from 'react'
+import {
+  useEffect, useRef, useState, useCallback
+} from 'react'
 
-/* -------------------- TYPES -------------------- */
-
-interface PriceAlert {
+export interface PriceAlert {
   symbol: string
   type: 'session_move' | 'tick_move'
   current: number | null
@@ -13,169 +13,141 @@ interface PriceAlert {
   severity: 'high' | 'medium' | 'low'
 }
 
-interface PriceUpdate {
-  type: string
-  prices: Record<string, number | null>
-  alerts?: PriceAlert[]
-  market: { nse_open: boolean; us_open: boolean }
-  sources?: Record<string, string>
-  stale_symbols?: string[]
-  timestamp: string
-  next_refresh_seconds?: number
-}
-
 interface UseWebSocketProps {
   symbols: string[]
   baselines: Record<string, number>
   enabled: boolean
 }
 
-/* -------------------- HELPERS -------------------- */
+interface WebSocketReturn {
+  prices: Record<string, number | null>
+  alerts: PriceAlert[]
+  connected: boolean
+  staleSymbols: string[]
+  lastUpdated: Date | null
+  nextRefresh: number
+  dismissAlert: (index: number) => void
+}
 
-const normalizePrices = (prices: Record<string, number | null>) =>
-  Object.fromEntries(
-    Object.entries(prices).map(([k, v]) => [k, v ?? null])
-  )
-
-const normalizeAlerts = (alerts: PriceAlert[] = []) =>
-  alerts
-    .filter(a => a.severity !== 'low')
-    .map(a => ({
-      ...a,
-      current:  a.current  ?? null,
-      baseline: a.baseline ?? null,
-      previous: a.previous ?? null,
-    }))
-
-/* -------------------- HOOK -------------------- */
+const WS_URL      = 'ws://localhost:8000/ws/prices'
+const PING_MS     = 30_000
+const MAX_BACKOFF = 30_000
 
 export function useWebSocket({
   symbols,
   baselines,
   enabled,
-}: UseWebSocketProps) {
-  const ws             = useRef<WebSocket | null>(null)
-  const reconnectTimer = useRef<ReturnType<typeof setTimeout>  | null>(null)
-  const pingTimer      = useRef<ReturnType<typeof setInterval> | null>(null)
+}: UseWebSocketProps): WebSocketReturn {
+  const wsRef        = useRef<WebSocket | null>(null)
+  const reconnectRef = useRef<ReturnType<typeof setTimeout>  | null>(null)
+  const pingRef      = useRef<ReturnType<typeof setInterval> | null>(null)
+  const attemptsRef  = useRef(0)
+  const closedRef    = useRef(false)
+  const symbolsRef   = useRef(symbols)
+  const baselinesRef = useRef(baselines)
 
-  const reconnectAttempts = useRef(0)
-  const isManuallyClosed  = useRef(false)
+  useEffect(() => { symbolsRef.current  = symbols  }, [symbols])
+  useEffect(() => { baselinesRef.current = baselines }, [baselines])
 
   const [prices,       setPrices]       = useState<Record<string, number | null>>({})
   const [alerts,       setAlerts]       = useState<PriceAlert[]>([])
   const [connected,    setConnected]    = useState(false)
-  const [marketOpen,   setMarketOpen]   = useState(false)
   const [staleSymbols, setStaleSymbols] = useState<string[]>([])
   const [lastUpdated,  setLastUpdated]  = useState<Date | null>(null)
-  const [nextRefresh,  setNextRefresh]  = useState<number>(300)
+  const [nextRefresh,  setNextRefresh]  = useState(300)
 
-  /* -------------------- CONNECT -------------------- */
+  const clearTimers = useCallback(() => {
+    if (reconnectRef.current) { clearTimeout(reconnectRef.current);  reconnectRef.current = null }
+    if (pingRef.current)      { clearInterval(pingRef.current);       pingRef.current      = null }
+  }, [])
 
   const connect = useCallback(() => {
-    if (!enabled || symbols.length === 0) return
+    if (!enabled || !symbolsRef.current.length)             return
+    if (wsRef.current?.readyState === WebSocket.OPEN)       return
 
-    isManuallyClosed.current = false
+    closedRef.current = false
 
     try {
-      ws.current = new WebSocket('ws://localhost:8000/ws/prices')
+      const ws      = new WebSocket(WS_URL)
+      wsRef.current = ws
 
-      ws.current.onopen = () => {
+      ws.onopen = () => {
         setConnected(true)
-        reconnectAttempts.current = 0
-
-        ws.current?.send(JSON.stringify({
+        attemptsRef.current = 0
+        ws.send(JSON.stringify({
           type:      'subscribe',
-          symbols,
-          baselines,
+          symbols:   symbolsRef.current,
+          baselines: baselinesRef.current,
         }))
-
-        // Keep-alive ping every 30s
-        pingTimer.current = setInterval(() => {
-          if (ws.current?.readyState === WebSocket.OPEN) {
-            ws.current.send(JSON.stringify({
-              type:      'ping',
-              timestamp: Date.now(),
-            }))
-          }
-        }, 30000)
+        pingRef.current = setInterval(() => {
+          if (ws.readyState === WebSocket.OPEN)
+            ws.send(JSON.stringify({ type: 'ping', timestamp: Date.now() }))
+        }, PING_MS)
       }
 
-      ws.current.onmessage = (event) => {
+      ws.onmessage = (event) => {
         try {
-          const data: PriceUpdate = JSON.parse(event.data)
+          const data = JSON.parse(event.data)
           if (data.type !== 'price_update') return
 
-          setPrices(prev => ({
-            ...prev,
-            ...normalizePrices(data.prices || {})
-          }))
+          const newPrices: Record<string, number | null> = data.prices || {}
 
-          setMarketOpen(!!(data.market?.nse_open || data.market?.us_open))
-          setStaleSymbols(data.stale_symbols || [])
-          setLastUpdated(new Date(data.timestamp || Date.now()))
+          setPrices(prev => {
+            const changed = Object.entries(newPrices).some(([k, v]) => prev[k] !== v)
+            return changed ? { ...prev, ...newPrices } : prev
+          })
+
+          setStaleSymbols(data.stale_symbols  || [])
           setNextRefresh(data.next_refresh_seconds ?? 300)
+          setLastUpdated(new Date())
 
-          if (data.alerts?.length) {
-            const important = normalizeAlerts(data.alerts)
-            if (important.length) {
-              setAlerts(prev => [...important, ...prev.slice(0, 9)])
-            }
-          }
-        } catch {
-          // Ignore malformed WebSocket messages
-        }
-      }
-
-      ws.current.onclose = () => {
-        setConnected(false)
-        if (pingTimer.current) clearInterval(pingTimer.current)
-
-        if (!isManuallyClosed.current) {
-          // Exponential backoff: 5s, 10s, 15s... max 30s
-          const delay = Math.min(
-            5000 * (reconnectAttempts.current + 1),
-            30000
+          const important: PriceAlert[] = (data.alerts || []).filter(
+            (a: PriceAlert) => a.severity !== 'low'
           )
-          reconnectAttempts.current += 1
-          reconnectTimer.current = setTimeout(connect, delay)
+          if (important.length > 0)
+            setAlerts(prev => [...important, ...prev].slice(0, 10))
+
+        } catch { /* ignore parse errors */ }
+      }
+
+      ws.onclose = () => {
+        setConnected(false)
+        clearTimers()
+        if (!closedRef.current) {
+          const delay = Math.min(1000 * 2 ** attemptsRef.current, MAX_BACKOFF)
+          attemptsRef.current++
+          reconnectRef.current = setTimeout(connect, delay)
         }
       }
 
-      ws.current.onerror = () => {
-        ws.current?.close()
-      }
+      ws.onerror = () => ws.close()
 
     } catch {
-      reconnectTimer.current = setTimeout(connect, 5000)
+      const delay = Math.min(5000 * (attemptsRef.current + 1), MAX_BACKOFF)
+      reconnectRef.current = setTimeout(connect, delay)
     }
-  }, [enabled, symbols, baselines])
-
-  /* -------------------- LIFECYCLE -------------------- */
+  }, [enabled, clearTimers])
 
   useEffect(() => {
-    connect()
-    return () => {
-      isManuallyClosed.current = true
-      if (reconnectTimer.current) clearTimeout(reconnectTimer.current)
-      if (pingTimer.current)      clearInterval(pingTimer.current)
-      ws.current?.close()
+    if (enabled) {
+      connect()
+    } else {
+      closedRef.current = true
+      clearTimers()
+      wsRef.current?.close()
+      wsRef.current = null
     }
-  }, [connect])
-
-  /* -------------------- ACTIONS -------------------- */
+    return () => {
+      closedRef.current = true
+      clearTimers()
+      wsRef.current?.close()
+      wsRef.current = null
+    }
+  }, [enabled, connect, clearTimers])
 
   const dismissAlert = useCallback((index: number) => {
     setAlerts(prev => prev.filter((_, i) => i !== index))
   }, [])
 
-  return {
-    prices,
-    alerts,
-    connected,
-    marketOpen,
-    staleSymbols,
-    lastUpdated,
-    nextRefresh,
-    dismissAlert,
-  }
+  return { prices, alerts, connected, staleSymbols, lastUpdated, nextRefresh, dismissAlert }
 }

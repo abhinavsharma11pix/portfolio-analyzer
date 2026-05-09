@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, memo } from 'react'
 import { Wifi, WifiOff } from 'lucide-react'
 
 interface MarketStatus {
@@ -16,7 +16,7 @@ interface Props {
   nextRefresh?: number
 }
 
-export default function MarketStatusBar({
+const MarketStatusBar = memo(function MarketStatusBar({
   connected = false,
   lastUpdated = null,
   nextRefresh = 300,
@@ -24,22 +24,26 @@ export default function MarketStatusBar({
   const [status, setStatus] = useState<MarketStatus | null>(null)
 
   useEffect(() => {
+    let mounted = true
     const fetchStatus = async () => {
       try {
-        const res = await fetch('http://localhost:8000/api/market/status')
+        const res  = await fetch('http://localhost:8000/api/market/status')
         const data = await res.json()
-        setStatus(data)
+        if (mounted) setStatus(data)
       } catch { /* silent */ }
     }
     fetchStatus()
-    const t = setInterval(fetchStatus, 60000)
-    return () => clearInterval(t)
+    const t = setInterval(fetchStatus, 60_000)
+    return () => { mounted = false; clearInterval(t) }
   }, [])
 
-  return (
-    <div className="flex items-center gap-4 px-6 py-1.5 bg-gray-950 border-b border-gray-800/50 text-xs overflow-x-auto">
+  const refreshLabel = nextRefresh >= 60
+    ? `${Math.round(nextRefresh / 60)}m`
+    : `${nextRefresh}s`
 
-      {/* WebSocket status */}
+  return (
+    <div className="flex items-center gap-3 px-6 py-1.5 bg-gray-950 border-b border-gray-800/40 text-xs overflow-x-auto whitespace-nowrap">
+
       <div className="flex items-center gap-1.5 shrink-0">
         {connected
           ? <Wifi size={11} className="text-green-400" />
@@ -52,7 +56,6 @@ export default function MarketStatusBar({
 
       <span className="text-gray-700">|</span>
 
-      {/* NSE */}
       <div className="flex items-center gap-1.5 shrink-0">
         <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${
           status?.nse_open ? 'bg-green-400 animate-pulse' : 'bg-gray-600'
@@ -67,7 +70,6 @@ export default function MarketStatusBar({
 
       <span className="text-gray-700">|</span>
 
-      {/* US */}
       <div className="flex items-center gap-1.5 shrink-0">
         <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${
           status?.us_open ? 'bg-green-400 animate-pulse' : 'bg-gray-600'
@@ -82,15 +84,10 @@ export default function MarketStatusBar({
 
       <span className="text-gray-700">|</span>
 
-      {/* Refresh */}
       <span className="text-gray-500 shrink-0">
-        Refresh: {nextRefresh >= 60
-          ? `${Math.round(nextRefresh / 60)}m`
-          : `${nextRefresh}s`
-        }
+        Refresh: {refreshLabel}
       </span>
 
-      {/* Last updated */}
       {lastUpdated && (
         <>
           <span className="text-gray-700">|</span>
@@ -100,15 +97,16 @@ export default function MarketStatusBar({
         </>
       )}
 
-      {/* Weekend warning */}
       {status?.is_weekend && (
         <>
           <span className="text-gray-700">|</span>
           <span className="text-yellow-600 shrink-0">
-            Weekend — showing last close prices
+            Weekend — last close prices
           </span>
         </>
       )}
     </div>
   )
-}
+})
+
+export default MarketStatusBar

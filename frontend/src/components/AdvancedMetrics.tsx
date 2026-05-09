@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, memo } from 'react'
 import axios from 'axios'
 import { Activity } from 'lucide-react'
+import { MetricCardSkeleton } from './ui/Skeleton'
 
 interface AdvancedData {
   var_95: number
@@ -30,45 +31,44 @@ interface AdvancedData {
 interface Props {
   holdings: any[]
   riskMetrics: any
+  onLoad?: (data: any) => void
 }
 
-function MetricBox({ label, value, sub, color }: {
-  label: string
-  value: string
-  sub: string
-  color: string
+const MetricBox = memo(function MetricBox({ label, value, sub, color }: {
+  label: string; value: string; sub: string; color: string
 }) {
   return (
     <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
       <p className="text-gray-400 text-xs mb-2 uppercase tracking-wide">{label}</p>
-      <p className={`text-2xl font-bold mb-1 ${color}`}>{value}</p>
+      <p className={`text-2xl font-bold mb-1 tabular-nums ${color}`}>{value}</p>
       <p className="text-gray-500 text-xs leading-relaxed">{sub}</p>
     </div>
   )
-}
+})
 
-function FactorBar({ label, value }: { label: string; value: number }) {
+const FactorBar = memo(function FactorBar({ label, value }: { label: string; value: number }) {
   return (
     <div className="flex items-center gap-3">
       <span className="text-gray-400 text-xs w-24 shrink-0">{label}</span>
       <div className="flex-1 bg-gray-800 rounded-full h-2">
         <div
-          className="h-2 rounded-full bg-blue-500 transition-all"
+          className="h-2 rounded-full bg-blue-500"
           style={{ width: `${Math.min(value, 100)}%` }}
         />
       </div>
-      <span className="text-gray-400 text-xs w-10 text-right">{value}%</span>
+      <span className="text-gray-400 text-xs w-10 text-right tabular-nums">{value}%</span>
     </div>
   )
-}
+})
 
-export default function AdvancedMetrics({ holdings, riskMetrics }: Props) {
-  const [data, setData]       = useState<AdvancedData | null>(null)
+const AdvancedMetrics = memo(function AdvancedMetrics({ holdings, riskMetrics, onLoad }: Props) {
+  const [data,    setData]    = useState<AdvancedData | null>(null)
   const [loading, setLoading] = useState(false)
-  const [error, setError]     = useState<string | null>(null)
+  const [error,   setError]   = useState<string | null>(null)
 
   useEffect(() => {
     if (!holdings?.length || !riskMetrics) return
+    let cancelled = false
 
     const fetchData = async () => {
       setLoading(true)
@@ -78,91 +78,74 @@ export default function AdvancedMetrics({ holdings, riskMetrics }: Props) {
           'http://localhost:8000/api/analytics/advanced',
           { holdings, risk_metrics: riskMetrics }
         )
-        setData(res.data)
+        if (!cancelled) {
+          setData(res.data)
+          onLoad?.(res.data)
+        }
       } catch {
-        setError('Could not compute advanced metrics')
+        if (!cancelled) setError('Could not compute advanced metrics')
       } finally {
-        setLoading(false)
+        if (!cancelled) setLoading(false)
       }
     }
 
     fetchData()
-  }, [holdings, riskMetrics])
+    return () => { cancelled = true }
+  }, [holdings, riskMetrics, onLoad])
 
   if (loading) return (
-    <div className="bg-gray-900 border border-gray-800 rounded-2xl p-8 text-center">
-      <div className="w-8 h-8 border-4 border-blue-400 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-      <p className="text-gray-400 text-sm">Computing advanced risk metrics...</p>
+    <div className="space-y-6">
+      <div className="bg-gray-900 border border-gray-800 rounded-2xl p-5">
+        <div className="skeleton h-8 w-48 mb-2" />
+        <div className="skeleton h-4 w-64" />
+      </div>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {[...Array(4)].map((_, i) => <MetricCardSkeleton key={i} />)}
+      </div>
     </div>
   )
 
   if (error) return (
-    <div className="bg-gray-900 border border-red-800 rounded-2xl p-4 text-red-400 text-sm">
-      ⚠️ {error}
-    </div>
+    <div className="bg-gray-900 border border-red-800 rounded-2xl p-4 text-red-400 text-sm">⚠️ {error}</div>
   )
 
   if (!data) return null
 
   const regimeColors: Record<string, string> = {
-    bull:     'text-green-400',
-    bear:     'text-red-400',
-    sideways: 'text-yellow-400',
-    unknown:  'text-gray-400',
+    bull: 'text-green-400', bear: 'text-red-400',
+    sideways: 'text-yellow-400', unknown: 'text-gray-400',
   }
-
   const regimeBorder: Record<string, string> = {
-    bull:     'bg-green-950/30 border-green-800',
-    bear:     'bg-red-950/30 border-red-800',
-    sideways: 'bg-yellow-950/30 border-yellow-800',
-    unknown:  'bg-gray-900 border-gray-800',
+    bull: 'bg-green-950/30 border-green-800', bear: 'bg-red-950/30 border-red-800',
+    sideways: 'bg-yellow-950/30 border-yellow-800', unknown: 'bg-gray-900 border-gray-800',
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 fade-in">
 
-      {/* Regime Banner */}
+      {/* Regime */}
       <div className={`border rounded-2xl p-5 flex items-center justify-between
-        ${regimeBorder[data.regime.regime] || 'bg-gray-900 border-gray-800'}`}
-      >
+        ${regimeBorder[data.regime.regime] || 'bg-gray-900 border-gray-800'}`}>
         <div>
-          <p className="text-gray-400 text-xs mb-1 uppercase tracking-wide">
-            Market Regime
-          </p>
+          <p className="text-gray-400 text-xs mb-1 uppercase tracking-wide">Market Regime</p>
           <p className={`text-2xl font-bold ${regimeColors[data.regime.regime] || 'text-gray-400'}`}>
             {data.regime.label}
           </p>
           <p className="text-gray-500 text-xs mt-1">
-            30-day trend: {data.regime.trend_pct > 0 ? '+' : ''}
-            {data.regime.trend_pct}% · Volatility: {data.regime.volatility_pct}%
+            30-day trend: {data.regime.trend_pct > 0 ? '+' : ''}{data.regime.trend_pct}%
+            · Volatility: {data.regime.volatility_pct}%
           </p>
         </div>
         <div className={`text-6xl opacity-20 ${regimeColors[data.regime.regime]}`}>
-          {data.regime.regime === 'bull' ? '↑' :
-           data.regime.regime === 'bear' ? '↓' : '→'}
+          {data.regime.regime === 'bull' ? '↑' : data.regime.regime === 'bear' ? '↓' : '→'}
         </div>
       </div>
 
-      {/* Key Metrics Grid */}
+      {/* Metrics */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <MetricBox
-          label="VaR 95%"
-          value={`${data.var_95.toFixed(2)}%`}
-          sub={data.interpretation.var}
-          color="text-orange-400"
-        />
-        <MetricBox
-          label="CVaR 95%"
-          value={`${data.cvar_95.toFixed(2)}%`}
-          sub={data.interpretation.cvar}
-          color="text-red-400"
-        />
-        <MetricBox
-          label="VaR 99%"
-          value={`${data.var_99.toFixed(2)}%`}
-          sub="Worst-case daily loss at 99% confidence"
-          color="text-red-500"
-        />
+        <MetricBox label="VaR 95%"      value={`${data.var_95.toFixed(2)}%`}  sub={data.interpretation.var}   color="text-orange-400" />
+        <MetricBox label="CVaR 95%"     value={`${data.cvar_95.toFixed(2)}%`} sub={data.interpretation.cvar}  color="text-red-400" />
+        <MetricBox label="VaR 99%"      value={`${data.var_99.toFixed(2)}%`}  sub="Worst-case at 99% confidence" color="text-red-500" />
         <MetricBox
           label="Alpha vs Nifty"
           value={`${data.alpha > 0 ? '+' : ''}${data.alpha.toFixed(2)}%`}
@@ -171,7 +154,7 @@ export default function AdvancedMetrics({ holdings, riskMetrics }: Props) {
         />
       </div>
 
-      {/* Factor Exposure */}
+      {/* Factor exposure */}
       <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
         <div className="flex items-center gap-2 mb-4">
           <Activity size={16} className="text-blue-400" />
@@ -184,7 +167,8 @@ export default function AdvancedMetrics({ holdings, riskMetrics }: Props) {
           <FactorBar label="Defensive" value={data.factor_exposure.defensive} />
         </div>
       </div>
-
     </div>
   )
-}
+})
+
+export default AdvancedMetrics
