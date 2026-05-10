@@ -32,24 +32,12 @@ def is_weekend() -> bool:
 
 
 def get_refresh_interval(has_active_connections: bool = False) -> int:
-    """
-    Smart TTL — driven by market hours AND active users.
-
-    Active users during market hours → 15 seconds (near real-time)
-    Active users after hours         → 2 minutes
-    No active users, market open     → 5 minutes (background)
-    No active users, after hours     → 30 minutes
-    Weekend                          → 6 hours
-    """
     if is_weekend():
-        return 21600  # 6 hours
-
+        return 21600
     markets_open = is_nse_open() or is_us_open()
-
     if has_active_connections:
         return 15 if markets_open else 120
-    else:
-        return 300 if markets_open else 1800
+    return 300 if markets_open else 1800
 
 
 def market_status() -> dict:

@@ -1,43 +1,38 @@
-import {
-  useEffect, useRef, useState, useCallback
-} from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 
 export interface PriceAlert {
   symbol: string
   type: 'session_move' | 'tick_move'
   current: number | null
   baseline?: number | null
-  previous?: number | null
   change_pct: number
   direction: 'up' | 'down'
   severity: 'high' | 'medium' | 'low'
 }
 
-interface UseWebSocketProps {
-  symbols: string[]
-  baselines: Record<string, number>
-  enabled: boolean
-}
-
-interface WebSocketReturn {
-  prices: Record<string, number | null>
-  alerts: PriceAlert[]
-  connected: boolean
+export interface UseWebSocketReturn {
+  prices:       Record<string, number | null>
+  alerts:       PriceAlert[]
+  connected:    boolean
   staleSymbols: string[]
-  lastUpdated: Date | null
-  nextRefresh: number
+  lastUpdated:  Date | null
+  nextRefresh:  number
   dismissAlert: (index: number) => void
 }
 
 const WS_URL      = 'ws://localhost:8000/ws/prices'
-const PING_MS     = 30_000
+const PING_MS     = 25_000
 const MAX_BACKOFF = 30_000
 
 export function useWebSocket({
   symbols,
   baselines,
   enabled,
-}: UseWebSocketProps): WebSocketReturn {
+}: {
+  symbols:   string[]
+  baselines: Record<string, number>
+  enabled:   boolean
+}): UseWebSocketReturn {
   const wsRef        = useRef<WebSocket | null>(null)
   const reconnectRef = useRef<ReturnType<typeof setTimeout>  | null>(null)
   const pingRef      = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -46,7 +41,8 @@ export function useWebSocket({
   const symbolsRef   = useRef(symbols)
   const baselinesRef = useRef(baselines)
 
-  useEffect(() => { symbolsRef.current  = symbols  }, [symbols])
+  // Update refs without triggering reconnect
+  useEffect(() => { symbolsRef.current   = symbols   }, [symbols])
   useEffect(() => { baselinesRef.current = baselines }, [baselines])
 
   const [prices,       setPrices]       = useState<Record<string, number | null>>({})
@@ -62,13 +58,13 @@ export function useWebSocket({
   }, [])
 
   const connect = useCallback(() => {
-    if (!enabled || !symbolsRef.current.length)             return
-    if (wsRef.current?.readyState === WebSocket.OPEN)       return
+    if (!enabled || !symbolsRef.current.length) return
+    if (wsRef.current?.readyState === WebSocket.OPEN) return
 
     closedRef.current = false
 
     try {
-      const ws      = new WebSocket(WS_URL)
+      const ws = new WebSocket(WS_URL)
       wsRef.current = ws
 
       ws.onopen = () => {
@@ -81,33 +77,27 @@ export function useWebSocket({
         }))
         pingRef.current = setInterval(() => {
           if (ws.readyState === WebSocket.OPEN)
-            ws.send(JSON.stringify({ type: 'ping', timestamp: Date.now() }))
+            ws.send(JSON.stringify({ type: 'ping' }))
         }, PING_MS)
       }
 
-      ws.onmessage = (event) => {
+      ws.onmessage = ({ data: raw }) => {
         try {
-          const data = JSON.parse(event.data)
-          if (data.type !== 'price_update') return
+          const msg = JSON.parse(raw)
+          if (msg.type !== 'price_update') return
 
-          const newPrices: Record<string, number | null> = data.prices || {}
-
+          const newPrices = msg.prices ?? {}
           setPrices(prev => {
             const changed = Object.entries(newPrices).some(([k, v]) => prev[k] !== v)
             return changed ? { ...prev, ...newPrices } : prev
           })
-
-          setStaleSymbols(data.stale_symbols  || [])
-          setNextRefresh(data.next_refresh_seconds ?? 300)
+          setStaleSymbols(msg.stale_symbols ?? [])
+          setNextRefresh(msg.next_refresh_seconds ?? 300)
           setLastUpdated(new Date())
 
-          const important: PriceAlert[] = (data.alerts || []).filter(
-            (a: PriceAlert) => a.severity !== 'low'
-          )
-          if (important.length > 0)
-            setAlerts(prev => [...important, ...prev].slice(0, 10))
-
-        } catch { /* ignore parse errors */ }
+          const important = (msg.alerts ?? []).filter((a: PriceAlert) => a.severity !== 'low')
+          if (important.length) setAlerts(prev => [...important, ...prev].slice(0, 10))
+        } catch { /* ignore */ }
       }
 
       ws.onclose = () => {
@@ -123,8 +113,7 @@ export function useWebSocket({
       ws.onerror = () => ws.close()
 
     } catch {
-      const delay = Math.min(5000 * (attemptsRef.current + 1), MAX_BACKOFF)
-      reconnectRef.current = setTimeout(connect, delay)
+      reconnectRef.current = setTimeout(connect, 5000)
     }
   }, [enabled, clearTimers])
 
@@ -145,8 +134,8 @@ export function useWebSocket({
     }
   }, [enabled, connect, clearTimers])
 
-  const dismissAlert = useCallback((index: number) => {
-    setAlerts(prev => prev.filter((_, i) => i !== index))
+  const dismissAlert = useCallback((i: number) => {
+    setAlerts(prev => prev.filter((_, idx) => idx !== i))
   }, [])
 
   return { prices, alerts, connected, staleSymbols, lastUpdated, nextRefresh, dismissAlert }

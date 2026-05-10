@@ -4,44 +4,30 @@ import { Activity } from 'lucide-react'
 import { MetricCardSkeleton } from './ui/Skeleton'
 
 interface AdvancedData {
-  var_95: number
-  var_99: number
-  cvar_95: number
-  alpha: number
+  var_95: number; var_99: number; cvar_95: number; alpha: number
   regime: {
-    regime: string
-    label: string
-    color: string
-    trend_pct: number
-    volatility_pct: number
+    regime: string; label: string; color: string
+    trend_pct: number; volatility_pct: number
   }
-  factor_exposure: {
-    momentum: number
-    value: number
-    growth: number
-    defensive: number
-  }
-  interpretation: {
-    var: string
-    cvar: string
-    alpha: string
-  }
+  factor_exposure: { momentum: number; value: number; growth: number; defensive: number }
+  interpretation: { var: string; cvar: string; alpha: string }
 }
 
 interface Props {
   holdings: any[]
   riskMetrics: any
   onLoad?: (data: any) => void
+  preloadedData?: any
 }
 
-const MetricBox = memo(function MetricBox({ label, value, sub, color }: {
-  label: string; value: string; sub: string; color: string
-}) {
+const MetricBox = memo(function MetricBox({
+  label, value, sub, color,
+}: { label: string; value: string; sub: string; color: string }) {
   return (
-    <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
-      <p className="text-gray-400 text-xs mb-2 uppercase tracking-wide">{label}</p>
-      <p className={`text-2xl font-bold mb-1 tabular-nums ${color}`}>{value}</p>
-      <p className="text-gray-500 text-xs leading-relaxed">{sub}</p>
+    <div className="card p-4 space-y-1.5">
+      <p className="text-gray-500 text-xs uppercase tracking-wide">{label}</p>
+      <p className={`text-2xl font-bold tabular-nums ${color}`}>{value}</p>
+      <p className="text-gray-600 text-xs leading-relaxed">{sub}</p>
     </div>
   )
 })
@@ -61,44 +47,50 @@ const FactorBar = memo(function FactorBar({ label, value }: { label: string; val
   )
 })
 
-const AdvancedMetrics = memo(function AdvancedMetrics({ holdings, riskMetrics, onLoad }: Props) {
-  const [data,    setData]    = useState<AdvancedData | null>(null)
-  const [loading, setLoading] = useState(false)
+const AdvancedMetrics = memo(function AdvancedMetrics({
+  holdings, riskMetrics, onLoad, preloadedData
+}: Props) {
+  const [data,    setData]    = useState<AdvancedData | null>(preloadedData ?? null)
+  const [loading, setLoading] = useState(!preloadedData)
   const [error,   setError]   = useState<string | null>(null)
 
   useEffect(() => {
+    if (preloadedData) {
+      setData(preloadedData)
+      setLoading(false)
+      onLoad?.(preloadedData)
+      return
+    }
+
     if (!holdings?.length || !riskMetrics) return
     let cancelled = false
+    setLoading(true)
+    setError(null)
 
-    const fetchData = async () => {
-      setLoading(true)
-      setError(null)
-      try {
-        const res = await axios.post(
-          'http://localhost:8000/api/analytics/advanced',
-          { holdings, risk_metrics: riskMetrics }
-        )
+    axios.post('http://localhost:8000/api/analytics/advanced', {
+      holdings,
+      risk_metrics: riskMetrics,
+    })
+      .then(res => {
         if (!cancelled) {
           setData(res.data)
           onLoad?.(res.data)
+          setLoading(false)
         }
-      } catch {
-        if (!cancelled) setError('Could not compute advanced metrics')
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setError('Could not compute advanced metrics')
+          setLoading(false)
+        }
+      })
 
-    fetchData()
     return () => { cancelled = true }
-  }, [holdings, riskMetrics, onLoad])
+  }, [holdings, riskMetrics, preloadedData, onLoad])
 
   if (loading) return (
-    <div className="space-y-6">
-      <div className="bg-gray-900 border border-gray-800 rounded-2xl p-5">
-        <div className="skeleton h-8 w-48 mb-2" />
-        <div className="skeleton h-4 w-64" />
-      </div>
+    <div className="space-y-5">
+      <div className="card p-5 h-24 skeleton" />
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[...Array(4)].map((_, i) => <MetricCardSkeleton key={i} />)}
       </div>
@@ -106,7 +98,7 @@ const AdvancedMetrics = memo(function AdvancedMetrics({ holdings, riskMetrics, o
   )
 
   if (error) return (
-    <div className="bg-gray-900 border border-red-800 rounded-2xl p-4 text-red-400 text-sm">⚠️ {error}</div>
+    <div className="card p-4 text-red-400 text-sm">⚠️ {error}</div>
   )
 
   if (!data) return null
@@ -115,20 +107,22 @@ const AdvancedMetrics = memo(function AdvancedMetrics({ holdings, riskMetrics, o
     bull: 'text-green-400', bear: 'text-red-400',
     sideways: 'text-yellow-400', unknown: 'text-gray-400',
   }
-  const regimeBorder: Record<string, string> = {
-    bull: 'bg-green-950/30 border-green-800', bear: 'bg-red-950/30 border-red-800',
-    sideways: 'bg-yellow-950/30 border-yellow-800', unknown: 'bg-gray-900 border-gray-800',
+  const regimeBg: Record<string, string> = {
+    bull: 'bg-green-950/30 border-green-800/40',
+    bear: 'bg-red-950/30 border-red-800/40',
+    sideways: 'bg-yellow-950/30 border-yellow-800/40',
+    unknown: 'bg-gray-900 border-gray-800',
   }
 
   return (
-    <div className="space-y-6 fade-in">
+    <div className="space-y-5 animate-fade-in">
 
-      {/* Regime */}
+      {/* Regime banner */}
       <div className={`border rounded-2xl p-5 flex items-center justify-between
-        ${regimeBorder[data.regime.regime] || 'bg-gray-900 border-gray-800'}`}>
+        ${regimeBg[data.regime.regime] ?? 'bg-gray-900 border-gray-800'}`}>
         <div>
-          <p className="text-gray-400 text-xs mb-1 uppercase tracking-wide">Market Regime</p>
-          <p className={`text-2xl font-bold ${regimeColors[data.regime.regime] || 'text-gray-400'}`}>
+          <p className="text-gray-500 text-xs uppercase tracking-widest mb-1">Market Regime</p>
+          <p className={`text-2xl font-bold ${regimeColors[data.regime.regime] ?? 'text-gray-400'}`}>
             {data.regime.label}
           </p>
           <p className="text-gray-500 text-xs mt-1">
@@ -136,16 +130,31 @@ const AdvancedMetrics = memo(function AdvancedMetrics({ holdings, riskMetrics, o
             · Volatility: {data.regime.volatility_pct}%
           </p>
         </div>
-        <div className={`text-6xl opacity-20 ${regimeColors[data.regime.regime]}`}>
+        <div className={`text-5xl opacity-15 ${regimeColors[data.regime.regime]}`}>
           {data.regime.regime === 'bull' ? '↑' : data.regime.regime === 'bear' ? '↓' : '→'}
         </div>
       </div>
 
       {/* Metrics */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <MetricBox label="VaR 95%"      value={`${data.var_95.toFixed(2)}%`}  sub={data.interpretation.var}   color="text-orange-400" />
-        <MetricBox label="CVaR 95%"     value={`${data.cvar_95.toFixed(2)}%`} sub={data.interpretation.cvar}  color="text-red-400" />
-        <MetricBox label="VaR 99%"      value={`${data.var_99.toFixed(2)}%`}  sub="Worst-case at 99% confidence" color="text-red-500" />
+        <MetricBox
+          label="VaR 95%"
+          value={`${data.var_95.toFixed(2)}%`}
+          sub={data.interpretation.var}
+          color="text-orange-400"
+        />
+        <MetricBox
+          label="CVaR 95%"
+          value={`${data.cvar_95.toFixed(2)}%`}
+          sub={data.interpretation.cvar}
+          color="text-red-400"
+        />
+        <MetricBox
+          label="VaR 99%"
+          value={`${data.var_99.toFixed(2)}%`}
+          sub="Worst-case at 99% confidence"
+          color="text-red-500"
+        />
         <MetricBox
           label="Alpha vs Nifty"
           value={`${data.alpha > 0 ? '+' : ''}${data.alpha.toFixed(2)}%`}
@@ -155,10 +164,10 @@ const AdvancedMetrics = memo(function AdvancedMetrics({ holdings, riskMetrics, o
       </div>
 
       {/* Factor exposure */}
-      <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
+      <div className="card p-5">
         <div className="flex items-center gap-2 mb-4">
-          <Activity size={16} className="text-blue-400" />
-          <h3 className="text-white font-semibold">Factor Exposure</h3>
+          <Activity size={15} className="text-blue-400" />
+          <h3 className="text-white font-semibold text-sm">Factor Exposure</h3>
         </div>
         <div className="space-y-3">
           <FactorBar label="Momentum"  value={data.factor_exposure.momentum} />

@@ -1,20 +1,17 @@
-import logging
 import asyncio
 import json
-from typing import Set
+import logging
+from typing import Set, Dict, Any
 from fastapi import WebSocket
 
 logger = logging.getLogger(__name__)
 
 
 class ConnectionManager:
-    """
-    Manages all active WebSocket connections.
-    Smart scheduler checks this to decide refresh rate.
-    """
-
     def __init__(self):
-        self._connections: Set[WebSocket] = set()
+        self._connections: Set[WebSocket]     = set()
+        self._metadata: Dict[WebSocket, dict] = {}
+        self._lock = asyncio.Lock()
 
     @property
     def active_count(self) -> int:
@@ -22,48 +19,63 @@ class ConnectionManager:
 
     @property
     def has_active(self) -> bool:
-        return len(self._connections) > 0
+        return bool(self._connections)
 
-    async def connect(self, ws: WebSocket):
+    async def connect(self, ws: WebSocket) -> None:
         await ws.accept()
-        self._connections.add(ws)
-        logger.info(
-            f"WebSocket connected. "
-            f"Active connections: {self.active_count}"
-        )
+        async with self._lock:
+            self._connections.add(ws)
+            self._metadata[ws] = {"connected_at": asyncio.get_event_loop().time()}
+        logger.info(f"WS connected. Total: {self.active_count}")
 
-    def disconnect(self, ws: WebSocket):
-        self._connections.discard(ws)
-        logger.info(
-            f"WebSocket disconnected. "
-            f"Active connections: {self.active_count}"
-        )
+    async def disconnect(self, ws: WebSocket) -> None:
+        async with self._lock:
+            self._connections.discard(ws)
+            self._metadata.pop(ws, None)
+        logger.info(f"WS disconnected. Total: {self.active_count}")
 
-    async def broadcast(self, data: dict):
-        """Send price update to ALL connected clients."""
+    async def broadcast(self, data: dict) -> int:
+        """Broadcast to all clients. Returns number of successful sends."""
         if not self._connections:
-            return
+            return 0
 
-        message = json.dumps(data)
-        dead = set()
+        message = json.dumps(data, default=str)
+        dead: Set[WebSocket] = set()
+        sent = 0
 
-        for ws in self._connections.copy():
+        # Snapshot to avoid mutation during iteration
+        connections = set(self._connections)
+
+        async def _send(ws: WebSocket):
+            nonlocal sent
             try:
-                await ws.send_text(message)
+                await asyncio.wait_for(ws.send_text(message), timeout=3.0)
+                sent += 1
             except Exception:
                 dead.add(ws)
 
+        await asyncio.gather(*[_send(ws) for ws in connections], return_exceptions=True)
+
         # Clean up dead connections
-        for ws in dead:
-            self._connections.discard(ws)
+        if dead:
+            async with self._lock:
+                for ws in dead:
+                    self._connections.discard(ws)
+                    self._metadata.pop(ws, None)
+            logger.info(f"Cleaned {len(dead)} dead connections")
 
-    async def send_to(self, ws: WebSocket, data: dict):
-        """Send message to ONE client."""
+        return sent
+
+    async def send_to(self, ws: WebSocket, data: dict) -> bool:
         try:
-            await ws.send_text(json.dumps(data))
+            await asyncio.wait_for(
+                ws.send_text(json.dumps(data, default=str)),
+                timeout=3.0
+            )
+            return True
         except Exception:
-            self._connections.discard(ws)
+            await self.disconnect(ws)
+            return False
 
 
-# Singleton — shared across the entire app
 manager = ConnectionManager()

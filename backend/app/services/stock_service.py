@@ -1,106 +1,90 @@
 import logging
 from typing import List, Dict, Optional
-from app.data.price_engine import fetch_prices_parallel
-from app.core.scheduler import update_tracked_symbols
+from app.market_data.price_engine import fetch_prices_parallel
+from app.cache.symbol_cache import is_delisted, get_currency
 
 logger = logging.getLogger(__name__)
 
 
-def _is_us_stock(symbol: str) -> bool:
-    return not symbol.endswith(".NS") and not symbol.endswith(".BO")
-
-
-def get_currency(symbol: str) -> str:
-    return "USD" if _is_us_stock(symbol) else "INR"
+def _safe_float(v, default: float = 0.0) -> float:
+    try:
+        r = float(v)
+        return r if r == r else default
+    except (TypeError, ValueError):
+        return default
 
 
 def enrich_portfolio(holdings: List[Dict]) -> Dict:
-    """Enrich holdings with live prices using parallel fetching."""
-    symbols = [h["symbol"] for h in holdings]
+    if not holdings:
+        return {"holdings": [], "summary": _empty_summary()}
 
-    # Update scheduler
-    try:
-        update_tracked_symbols(symbols)
-    except Exception:
-        pass
-
-    # Fetch all prices in parallel — returns {symbol: {price, source, currency, stale}}
+    symbols    = [h["symbol"] for h in holdings]
     price_data = fetch_prices_parallel(symbols)
 
     enriched = []
-    total_invested_inr = 0.0
-    total_current_inr  = 0.0
-    total_invested_usd = 0.0
-    total_current_usd  = 0.0
+    totals   = {
+        "INR": {"invested": 0.0, "current": 0.0},
+        "USD": {"invested": 0.0, "current": 0.0},
+    }
 
-    for holding in holdings:
-        symbol    = holding["symbol"]
-        qty       = float(holding["quantity"])
-        avg_price = float(holding["avg_buy_price"])
-        currency  = get_currency(symbol)
+    for h in holdings:
+        sym       = h["symbol"]
+        qty       = _safe_float(h.get("quantity"), 0)
+        avg_price = _safe_float(h.get("avg_buy_price"), 0)
+        currency  = get_currency(sym)
 
-        # ✅ Extract just the price float from the rich dict
-        raw = price_data.get(symbol, {})
-        if isinstance(raw, dict):
-            current_price = raw.get("price")
+        raw   = price_data.get(sym, {})
+        price = _safe_float(raw.get("price") if isinstance(raw, dict) else raw)
+        inv   = round(qty * avg_price, 2)
+
+        if price > 0:
+            cur_val = round(qty * price, 2)
+            pnl     = round(cur_val - inv, 2)
+            pnl_pct = round((pnl / inv) * 100, 2) if inv else 0
         else:
-            current_price = raw  # fallback if plain float
+            cur_val = None
+            pnl     = None
+            pnl_pct = None
 
-        # Ensure it's a valid number
-        if current_price is not None:
-            try:
-                current_price = float(current_price)
-            except (TypeError, ValueError):
-                current_price = None
+        totals[currency]["invested"] += inv
+        totals[currency]["current"]  += cur_val or inv
 
-        invested = round(qty * avg_price, 2)
-
-        if current_price and current_price > 0:
-            current_value = round(qty * current_price, 2)
-            pnl           = round(current_value - invested, 2)
-            pnl_pct       = round((pnl / invested) * 100, 2) if invested else 0
-        else:
-            current_value = None
-            pnl           = None
-            pnl_pct       = None
-
-        if currency == "INR":
-            total_invested_inr += invested
-            total_current_inr  += current_value or invested
-        else:
-            total_invested_usd += invested
-            total_current_usd  += current_value or invested
+        from app.cache.store import set as cache_set, TTL_PRICE
+        if price:
+            cache_set(f"price:{sym}", price, TTL_PRICE)
 
         enriched.append({
-            **holding,
-            "symbol":        symbol,
-            "current_price": current_price,
-            "currency":      currency,
-            "invested_value": invested,
-            "current_value": current_value,
-            "pnl":           pnl,
-            "pnl_pct":       pnl_pct,
+            **h,
+            "symbol":         sym,
+            "current_price":  price or None,
+            "currency":       currency,
+            "invested_value": inv,
+            "current_value":  cur_val,
+            "pnl":            pnl,
+            "pnl_pct":        pnl_pct,
         })
 
-    total_pnl_inr     = round(total_current_inr - total_invested_inr, 2)
-    total_pnl_usd     = round(total_current_usd - total_invested_usd, 2)
-    total_pnl_pct_inr = round((total_pnl_inr / total_invested_inr * 100), 2) if total_invested_inr else 0
-    total_pnl_pct_usd = round((total_pnl_usd / total_invested_usd * 100), 2) if total_invested_usd else 0
+    def _summary(t: dict) -> dict:
+        inv = t["invested"]
+        cur = t["current"]
+        p   = round(cur - inv, 2)
+        pct = round((p / inv * 100), 2) if inv else 0
+        return {
+            "total_invested":      round(inv, 2),
+            "total_current_value": round(cur, 2),
+            "total_pnl":           p,
+            "total_pnl_pct":       pct,
+        }
 
     return {
         "holdings": enriched,
         "summary": {
-            "inr": {
-                "total_invested":      round(total_invested_inr, 2),
-                "total_current_value": round(total_current_inr, 2),
-                "total_pnl":           total_pnl_inr,
-                "total_pnl_pct":       total_pnl_pct_inr,
-            },
-            "usd": {
-                "total_invested":      round(total_invested_usd, 2),
-                "total_current_value": round(total_current_usd, 2),
-                "total_pnl":           total_pnl_usd,
-                "total_pnl_pct":       total_pnl_pct_usd,
-            },
+            "inr": _summary(totals["INR"]),
+            "usd": _summary(totals["USD"]),
         },
     }
+
+
+def _empty_summary() -> dict:
+    z = {"total_invested": 0, "total_current_value": 0, "total_pnl": 0, "total_pnl_pct": 0}
+    return {"inr": z, "usd": z}

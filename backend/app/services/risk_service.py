@@ -1,160 +1,179 @@
-import yfinance as yf
+import logging
+import warnings
 import numpy as np
 import pandas as pd
+import yfinance as yf
 from typing import List, Dict
-import time
-import logging
+from app.cache import store as cache
+
 logger = logging.getLogger(__name__)
+warnings.filterwarnings("ignore")
 
 
-def _download_with_retry(symbol: str, retries: int = 3, delay: float = 2.0) -> pd.DataFrame:
-    """Download yfinance data with retry on failure."""
-    for attempt in range(retries):
-        try:
-            data = yf.download(symbol, period="1y", auto_adjust=True, progress=False)
-            if not data.empty:
-                return data
-        except Exception as e:
-            logger.warning(f"Attempt {attempt+1} failed for {symbol}: {e}")
-            time.sleep(delay)
-    return pd.DataFrame()
+def _batch_download(symbols: List[str], period: str = "1y") -> pd.DataFrame:
+    key    = cache.make_portfolio_key("prices_raw", [{"s": s} for s in symbols], period)
+    cached = cache.get(key, cache.TTL_ANALYTICS, disk=True)
+    if cached is not None:
+        return pd.DataFrame(cached)
 
+    try:
+        data = yf.download(
+            symbols, period=period,
+            auto_adjust=True, progress=False, timeout=25,
+        )
+        if data.empty:
+            return pd.DataFrame()
 
-def default_response(error_msg: str = "") -> Dict:
-    return {
-        "sharpe_ratio": 0,
-        "sortino_ratio": 0,
-        "annualized_volatility_pct": 0,
-        "max_drawdown_pct": 0,
-        "beta": 1.0,
-        "stock_volatilities": {},
-        "interpretation": {
-            "sharpe": error_msg or "Insufficient data",
-            "volatility": "",
-            "drawdown": "",
-            "beta": ""
-        }
-    }
+        if len(symbols) == 1:
+            prices = data[["Close"]].rename(columns={"Close": symbols[0]})
+        else:
+            prices = data["Close"] if "Close" in data.columns else data.xs("Close", axis=1, level=0)
+
+        prices = prices.dropna(how="all")
+        cache.set(key, prices.to_dict(), cache.TTL_ANALYTICS, disk=True)
+        return prices
+    except Exception as e:
+        logger.warning(f"Batch download failed: {e}")
+        return pd.DataFrame()
 
 
 def calculate_risk_metrics(holdings: List[Dict]) -> Dict:
-    symbols = [h["symbol"] for h in holdings]
-    weights_raw = {h["symbol"]: h["quantity"] * h["avg_buy_price"] for h in holdings}
-    total_invested = sum(weights_raw.values())
+    valid = [h for h in holdings if h.get("symbol") and _safe_float(h.get("invested_value")) > 0]
+    if not valid:
+        return _empty()
 
-    if total_invested == 0:
-        return default_response("Invalid portfolio weights")
+    # Cache check
+    key    = cache.make_portfolio_key("risk", valid)
+    cached = cache.get(key, cache.TTL_ANALYTICS)
+    if cached:
+        return cached
 
-    weights = {s: v / total_invested for s, v in weights_raw.items()}
+    symbols   = [h["symbol"] for h in valid]
+    total_inv = sum(_safe_float(h.get("invested_value")) for h in valid)
+    w         = np.array([_safe_float(h.get("invested_value")) / total_inv for h in valid])
 
-    # Fetch each stock individually — more reliable than batch
-    price_data = {}
-    for symbol in symbols:
-        try:
-            data = _download_with_retry(symbol)
-            if not data.empty and "Close" in data.columns:
-                close = data["Close"].squeeze()
-                if isinstance(close, pd.Series) and len(close) > 50:
-                    price_data[symbol] = close
-        except Exception:
-            continue
+    prices_df = _batch_download(symbols)
+    if prices_df.empty:
+        return _empty()
 
-    if not price_data:
-        return default_response("No valid stock data fetched")
+    available  = [s for s in symbols if s in prices_df.columns]
+    if len(available) < 1:
+        return _empty()
 
-    prices = pd.DataFrame(price_data)
-    prices = prices.dropna(axis=1, how="all")
+    prices  = prices_df[available].dropna(how="all")
+    returns = prices.pct_change(fill_method=None).dropna()
+    if len(returns) < 20:
+        return _empty()
 
-    if prices.empty:
-        return default_response("No historical data available")
+    # Align weights
+    idx  = [symbols.index(s) for s in available if s in symbols]
+    wa   = w[idx]; wa = wa / wa.sum()
 
-    returns = prices.pct_change().dropna()
+    port_ret = returns[available].values @ wa
+    ps       = pd.Series(port_ret)
 
-    if returns.empty or len(returns) < 50:
-        return default_response("Not enough historical data (need 50+ trading days)")
+    ann_ret  = float(ps.mean() * 252 * 100)
+    ann_vol  = float(ps.std() * np.sqrt(252) * 100)
+    rf       = 6.5
+    sharpe   = round((ann_ret - rf) / ann_vol, 3) if ann_vol > 0 else 0.0
 
-    available_symbols = [s for s in symbols if s in returns.columns]
-    if not available_symbols:
-        return default_response("No valid symbols found in historical data")
+    # Sortino
+    neg      = ps[ps < 0]
+    sortino  = round((ann_ret - rf) / (float(neg.std()) * np.sqrt(252) * 100), 3) if len(neg) > 1 else 0.0
 
-    available_weights = np.array([weights[s] for s in available_symbols])
-    available_weights = available_weights / available_weights.sum()
+    # Max drawdown — vectorized
+    cum     = (1 + ps).cumprod()
+    max_dd  = float(((cum - cum.cummax()) / cum.cummax()).min() * 100)
 
-    portfolio_returns = returns[available_symbols].dot(available_weights)
+    # Beta
+    beta = _compute_beta(ps)
 
-    # Sharpe Ratio (risk-free = 6.5% India)
-    risk_free_daily = 0.065 / 252
-    excess_returns = portfolio_returns - risk_free_daily
-    sharpe = (
-        float((excess_returns.mean() / excess_returns.std()) * np.sqrt(252))
-        if excess_returns.std() != 0 else 0.0
-    )
+    # Sector breakdown
+    sector_map: Dict[str, float] = {}
+    for h in valid:
+        sec = h.get("sector") or "Unknown"
+        sector_map[sec] = sector_map.get(sec, 0) + _safe_float(h.get("invested_value"))
 
-    # Annualized Volatility
-    volatility = float(portfolio_returns.std() * np.sqrt(252) * 100)
+    sector_breakdown = [
+        {"sector": k, "weight_pct": round(v / total_inv * 100, 1)}
+        for k, v in sorted(sector_map.items(), key=lambda x: -x[1])
+    ]
 
-    # Max Drawdown
-    cumulative = (1 + portfolio_returns).cumprod()
-    rolling_max = cumulative.cummax()
-    drawdown = (cumulative - rolling_max) / rolling_max
-    max_drawdown = float(drawdown.min() * 100)
-
-    # Beta vs Nifty 50
-    try:
-        nifty = yf.download("^NSEI", period="1y", auto_adjust=True, progress=False)
-        nifty_returns = nifty["Close"].squeeze().pct_change().dropna()
-        aligned = pd.concat([portfolio_returns, nifty_returns], axis=1).dropna()
-        aligned.columns = ["portfolio", "market"]
-        cov = np.cov(aligned["portfolio"], aligned["market"])
-        beta = float(cov[0][1] / cov[1][1]) if cov[1][1] != 0 else 1.0
-    except Exception:
-        beta = 1.0
-
-    # Per-stock volatility
-    stock_volatilities = {}
-    for symbol in available_symbols:
-        vol = float(returns[symbol].std() * np.sqrt(252) * 100)
-        stock_volatilities[symbol] = round(vol, 2)
-
-    # Sortino Ratio
-    downside = portfolio_returns[portfolio_returns < 0]
-    sortino = (
-        float((portfolio_returns.mean() * 252) / (downside.std() * np.sqrt(252)))
-        if len(downside) > 0 and downside.std() != 0 else 0.0
-    )
-
-    return {
-        "sharpe_ratio": round(sharpe, 3),
-        "sortino_ratio": round(sortino, 3),
-        "annualized_volatility_pct": round(volatility, 2),
-        "max_drawdown_pct": round(max_drawdown, 2),
-        "beta": round(beta, 3),
-        "stock_volatilities": stock_volatilities,
-        "interpretation": interpret_metrics(sharpe, volatility, max_drawdown, beta)
+    result = {
+        "sharpe_ratio":              round(sharpe, 3),
+        "sortino_ratio":             round(sortino, 3),
+        "annualized_return_pct":     round(ann_ret, 2),
+        "annualized_volatility_pct": round(ann_vol, 2),
+        "max_drawdown_pct":          round(max_dd, 2),
+        "beta":                      round(beta, 3),
+        "sector_breakdown":          sector_breakdown,
+        "total_holdings":            len(valid),
+        "total_invested":            round(total_inv, 2),
+        "interpretation": {
+            "sharpe":     _interp_sharpe(sharpe),
+            "volatility": _interp_vol(ann_vol),
+            "drawdown":   f"Worst loss from peak: {abs(max_dd):.1f}%",
+            "beta":       _interp_beta(beta),
+        },
     }
+    cache.set(key, result, cache.TTL_ANALYTICS)
+    return result
 
 
-def interpret_metrics(sharpe: float, volatility: float, drawdown: float, beta: float) -> Dict:
+def _compute_beta(ps: pd.Series) -> float:
+    key    = f"beta_nifty:{len(ps)}"
+    cached = cache.get(key, cache.TTL_ANALYTICS, disk=True)
+    if cached is not None:
+        return cached
+    try:
+        n     = yf.download("^NSEI", period="1y", auto_adjust=True, progress=False, timeout=10)
+        bench = n["Close"].pct_change(fill_method=None).dropna()
+        ali   = pd.concat([ps, bench], axis=1).dropna()
+        if len(ali) < 20:
+            return 1.0
+        cov   = np.cov(ali.iloc[:, 0], ali.iloc[:, 1])
+        beta  = float(cov[0][1] / cov[1][1]) if cov[1][1] != 0 else 1.0
+        cache.set(key, beta, cache.TTL_ANALYTICS, disk=True)
+        return round(beta, 3)
+    except Exception:
+        return 1.0
+
+
+def _safe_float(v, d: float = 0.0) -> float:
+    try:
+        r = float(v); return r if r == r else d
+    except Exception:
+        return d
+
+
+def _interp_sharpe(s):
+    if s >= 2:   return "Excellent risk-adjusted returns"
+    if s >= 1:   return "Good — solid performance per unit risk"
+    if s >= 0.5: return "Average — moderate risk compensation"
+    if s >= 0:   return "Below average — risk not well compensated"
+    return "Poor — taking risk without adequate return"
+
+
+def _interp_vol(v):
+    if v < 12:  return "Low — stable portfolio"
+    if v < 20:  return "Moderate — normal equity range"
+    if v < 30:  return "High — significant price swings"
+    return "Very high — extreme risk profile"
+
+
+def _interp_beta(b):
+    if b < 0.5:  return "Very defensive"
+    if b < 0.85: return "Defensive — less volatile than Nifty"
+    if b < 1.15: return "Market-like"
+    if b < 1.5:  return "Aggressive"
+    return "Very aggressive"
+
+
+def _empty() -> Dict:
     return {
-        "sharpe": (
-            "Excellent risk-adjusted returns" if sharpe > 2 else
-            "Good risk-adjusted returns" if sharpe > 1 else
-            "Acceptable risk-adjusted returns" if sharpe > 0 else
-            "Poor risk-adjusted returns — consider rebalancing"
-        ),
-        "volatility": (
-            "Low volatility — stable portfolio" if volatility < 15 else
-            "Moderate volatility — typical for equities" if volatility < 25 else
-            "High volatility — significant price swings"
-        ),
-        "drawdown": (
-            "Mild drawdown — resilient portfolio" if drawdown > -15 else
-            "Moderate drawdown — acceptable for long-term" if drawdown > -30 else
-            "Severe drawdown — portfolio took heavy losses"
-        ),
-        "beta": (
-            "Low market correlation — good diversification" if beta < 0.8 else
-            "Moves in line with the market" if beta < 1.2 else
-            "High market sensitivity — amplified market moves"
-        )
+        "sharpe_ratio": 0, "sortino_ratio": 0,
+        "annualized_return_pct": 0, "annualized_volatility_pct": 0,
+        "max_drawdown_pct": 0, "beta": 1.0, "sector_breakdown": [],
+        "total_holdings": 0, "total_invested": 0,
+        "interpretation": {k: "Insufficient data" for k in ["sharpe","volatility","drawdown","beta"]},
     }

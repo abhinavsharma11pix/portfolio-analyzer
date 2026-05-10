@@ -1,44 +1,34 @@
 import { useEffect, useRef, useState, memo } from 'react'
 
-interface Props {
-  price: number | null
-  currency: string
-  stale?: boolean
-}
+interface Props { price: number | null; currency: string; stale?: boolean }
 
 const LivePriceTicker = memo(function LivePriceTicker({ price, currency, stale }: Props) {
-  const [flash, setFlash]   = useState<'up' | 'down' | null>(null)
-  const prevRef             = useRef<number | null>(null)
-  const timerRef            = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const prefix              = currency === 'USD' ? '$' : '₹'
+  const [flashClass, setFlashClass] = useState('')
+  const prevRef   = useRef<number | null>(null)
+  const timerRef  = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const prefix    = currency === 'USD' ? '$' : '₹'
 
   useEffect(() => {
-    if (price === null) return
-    if (prevRef.current !== null && prevRef.current !== price) {
-      const dir = price > prevRef.current ? 'up' : 'down'
-      setFlash(dir)
-      if (timerRef.current) clearTimeout(timerRef.current)
-      timerRef.current = setTimeout(() => setFlash(null), 700)
-    }
+    if (price == null || prevRef.current == null) { prevRef.current = price; return }
+    if (price === prevRef.current) return
+
+    const cls = price > prevRef.current ? 'flash-green' : 'flash-red'
+    setFlashClass(cls)
     prevRef.current = price
+    if (timerRef.current) clearTimeout(timerRef.current)
+    timerRef.current = setTimeout(() => setFlashClass(''), 650)
     return () => { if (timerRef.current) clearTimeout(timerRef.current) }
   }, [price])
 
-  const flashClass =
-    flash === 'up'   ? 'bg-green-500/20' :
-    flash === 'down' ? 'bg-red-500/20'   : ''
-
   return (
-    <span className={`inline-flex items-center gap-1 px-1 rounded transition-colors duration-500 ${flashClass}`}>
+    <span className={`inline-flex items-center gap-1 px-1 rounded ${flashClass}`}>
       <span className="font-medium text-white tabular-nums">
         {price != null
-          ? `${prefix}${price.toLocaleString(undefined, { maximumFractionDigits: 2 })}`
-          : <span className="text-gray-600">Unavailable</span>
+          ? `${prefix}${price.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`
+          : <span className="text-gray-600 text-xs">—</span>
         }
       </span>
-      {stale && (
-        <span className="text-yellow-500 text-xs" title="Price may be delayed">⚠</span>
-      )}
+      {stale && <span className="text-yellow-600 text-xs" title="Delayed price">⚠</span>}
     </span>
   )
 })

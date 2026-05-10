@@ -1,46 +1,53 @@
 import asyncio
 import logging
 import time
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-
-# Routers
-from app.api.routes import portfolio
-from app.api.routes.analytics import router as analytics_router
-from app.api.routes.websocket import router as ws_router
-from app.api.routes.decisions import router as decisions_router
-
-
-# Core
+from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.responses import ORJSONResponse
+from app.core.config import get_settings
 from app.db.migrations import run_migrations
-from app.core.market_calendar import market_status
-
-
-
-# -------------------- LOGGING -------------------- #
 
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s"
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
-logger = logging.getLogger(__name__)
+logger   = logging.getLogger(__name__)
+settings = get_settings()
 
 
-# -------------------- APP INIT -------------------- #
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info(f"🚀 {settings.app_name} v{settings.app_version}")
+    run_migrations()
+    logger.info("✅ DB ready")
+
+    from app.core.price_broadcaster import broadcast_loop
+    task = asyncio.create_task(broadcast_loop())
+    logger.info("✅ Broadcaster started")
+
+    yield
+
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+    logger.info("✅ Shutdown complete")
+
 
 app = FastAPI(
-    title="AI Portfolio Analyzer",
-    description="Hedge-fund grade portfolio analysis",
-    version="3.0.0"
+    title=settings.app_name,
+    version=settings.app_version,
+    lifespan=lifespan,
+    default_response_class=ORJSONResponse,
 )
 
-
-# -------------------- MIDDLEWARE -------------------- #
-
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=settings.allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -48,122 +55,85 @@ app.add_middleware(
 
 
 @app.middleware("http")
-async def log_requests(request: Request, call_next):
-    start = time.time()
+async def timing_middleware(request: Request, call_next):
+    t0       = time.monotonic()
     response = await call_next(request)
-    duration = round(time.time() - start, 3)
-    logger.info(
-        f"{request.method} {request.url.path} "
-        f"→ {response.status_code} ({duration}s)"
-    )
+    elapsed  = round((time.monotonic() - t0) * 1000)
+    response.headers["X-Response-Time"] = f"{elapsed}ms"
+    if elapsed > 5000:
+        logger.warning(f"SLOW: {request.method} {request.url.path} {elapsed}ms")
+    else:
+        logger.info(f"{request.method} {request.url.path} → {response.status_code} {elapsed}ms")
     return response
 
 
-# -------------------- STARTUP -------------------- #
-
-@app.on_event("startup")
-async def startup():
-    logger.info("🚀 Starting AI Portfolio Analyzer v3...")
-
-    # DB
-    run_migrations()
-    logger.info("✅ Database ready")
-
-    # Background tasks
-    from app.core.price_broadcaster import broadcast_loop
-    asyncio.create_task(broadcast_loop())
-    logger.info("✅ WebSocket price broadcaster started")
-
-
-# -------------------- EXCEPTION HANDLER -------------------- #
-
 @app.exception_handler(Exception)
-async def global_exception_handler(request: Request, exc: Exception):
-    logger.error(f"Unhandled error: {exc}")
-    return JSONResponse(
+async def global_error(request: Request, exc: Exception):
+    logger.error(f"Error on {request.url.path}: {exc}", exc_info=True)
+    return ORJSONResponse(
         status_code=500,
         content={"detail": "Internal server error"}
     )
 
+# Routers
+from app.api.routes import portfolio
+from app.api.routes.analytics import router as analytics_router
+from app.api.routes.websocket import router as ws_router
 
-# -------------------- ROUTES -------------------- #
+app.include_router(portfolio.router,  prefix="/api/portfolio", tags=["Portfolio"])
+app.include_router(analytics_router,  prefix="/api/analytics", tags=["Analytics"])
+app.include_router(ws_router,                                   tags=["WebSocket"])
 
-# Portfolio
-app.include_router(
-    portfolio.router,
-    prefix="/api/portfolio",
-    tags=["Portfolio"]
-)
-
-# Analytics
-app.include_router(
-    analytics_router,
-    prefix="/api/analytics",
-    tags=["Analytics"]
-)
-
-app.include_router(
-    decisions_router,
-    prefix="/api/portfolio",
-    tags=["Decisions"]
-)
-
-# WebSocket
-app.include_router(
-    ws_router,
-    tags=["WebSocket"]
-)
-
-
-
-
-# -------------------- HEALTH & META -------------------- #
 
 @app.get("/")
 def root():
-    return {
-        "message": "AI Portfolio Analyzer API 🚀",
-        "version": "3.0.0"
-    }
+    return {"name": settings.app_name, "version": settings.app_version, "status": "ok"}
 
 
 @app.get("/health")
 def health():
-    return {"status": "healthy"}
+    from app.cache.store import stats
+    return {"status": "healthy", "cache": stats()}
 
 
 @app.get("/api/db/status")
 def db_status():
     from app.core.database import get_connection
     try:
-        conn = get_connection()
-        tables = conn.execute("""
-            SELECT name FROM sqlite_master
-            WHERE type='table' ORDER BY name
-        """).fetchall()
+        conn   = get_connection()
+        tables = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
+        ).fetchall()
         conn.close()
-
-        return {
-            "status": "connected",
-            "tables": [t["name"] for t in tables]
-        }
-
+        return {"status": "connected", "tables": [t["name"] for t in tables]}
     except Exception as e:
-        return {
-            "status": "error",
-            "detail": str(e)
-        }
+        return {"status": "error", "detail": str(e)}
 
 
 @app.get("/api/market/status")
-def get_market_status():
-    return market_status()
+def market_status():
+    from app.core.market_calendar import market_status as ms
+    return ms()
 
 
 @app.get("/api/connections")
-def get_connections():
+def connections():
     from app.core.connection_manager import manager
-    return {
-        "active_connections": manager.active_count,
-        "has_active": manager.has_active,
-    }
+    return {"active": manager.active_count}
+
+
+@app.get("/api/cache/stats")
+def cache_stats():
+    from app.cache.store import stats
+    return stats()
+
+
+@app.delete("/api/cache/clear")
+def cache_clear():
+    from app.cache.store import _l1, _disk
+    _l1.clear()
+    try:
+        _disk.clear()
+    except Exception:
+        pass
+    return {"cleared": True}
