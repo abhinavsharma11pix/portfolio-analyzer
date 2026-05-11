@@ -75,19 +75,27 @@ async def global_error(request: Request, exc: Exception):
         content={"detail": "Internal server error"}
     )
 
-# Routers
+
+# ── Routers ────────────────────────────────────────────────────
 from app.api.routes import portfolio
 from app.api.routes.analytics import router as analytics_router
 from app.api.routes.websocket import router as ws_router
+from app.api.routes.recommendation import router as rec_router
 
-app.include_router(portfolio.router,  prefix="/api/portfolio", tags=["Portfolio"])
-app.include_router(analytics_router,  prefix="/api/analytics", tags=["Analytics"])
-app.include_router(ws_router,                                   tags=["WebSocket"])
+app.include_router(portfolio.router,  prefix="/api/portfolio",       tags=["Portfolio"])
+app.include_router(analytics_router,  prefix="/api/analytics",       tags=["Analytics"])
+app.include_router(rec_router,        prefix="/api/recommendation",  tags=["Recommendation"])
+app.include_router(ws_router,                                         tags=["WebSocket"])
 
 
+# ── Health endpoints ───────────────────────────────────────────
 @app.get("/")
 def root():
-    return {"name": settings.app_name, "version": settings.app_version, "status": "ok"}
+    return {
+        "name":    settings.app_name,
+        "version": settings.app_version,
+        "status":  "ok",
+    }
 
 
 @app.get("/health")

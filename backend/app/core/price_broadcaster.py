@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 from datetime import datetime
 from typing import Dict, List, Optional
 
@@ -8,12 +9,13 @@ from app.core.market_calendar import get_refresh_interval, is_nse_open, is_us_op
 
 logger = logging.getLogger(__name__)
 
-_tracked_symbols:  List[str]         = []
-_baseline_prices:  Dict[str, float]  = {}
-_last_prices:      Dict[str, float]  = {}
-_last_broadcast:   float             = 0.0
-ALERT_THRESHOLD    = 2.0
-MIN_BROADCAST_GAP  = 3.0  # seconds — prevents flooding
+_tracked_symbols: List[str]        = []
+_baseline_prices: Dict[str, float] = {}
+_last_prices:     Dict[str, float] = {}
+_last_broadcast:  float            = 0.0
+
+ALERT_THRESHOLD   = 2.0
+MIN_BROADCAST_GAP = 3.0
 
 
 def set_tracked_symbols(symbols: List[str]) -> None:
@@ -53,16 +55,10 @@ def _detect_alerts(price_data: Dict[str, dict]) -> List[dict]:
 
 
 async def broadcast_loop() -> None:
-    """
-    Production-grade broadcast loop:
-    - Uses asyncio.sleep precisely (no drift)
-    - Respects minimum broadcast gap (backpressure)
-    - Skips broadcast if no clients
-    - Handles errors gracefully with exponential backoff
-    """
     global _last_broadcast
     logger.info("📡 Broadcast loop started")
     error_count = 0
+    interval    = 30
 
     while True:
         try:
@@ -73,15 +69,14 @@ async def broadcast_loop() -> None:
                 await asyncio.sleep(min(interval, 30))
                 continue
 
-            # Enforce minimum gap between broadcasts
-            import time
             now  = time.monotonic()
             wait = max(0, MIN_BROADCAST_GAP - (now - _last_broadcast))
             if wait > 0:
                 await asyncio.sleep(wait)
 
-            # Fetch prices in thread pool (non-blocking)
-            from app.data.price_engine import fetch_prices_parallel
+            # ✅ Fixed import path: app.market_data not app.data
+            from app.market_data.price_engine import fetch_prices_parallel
+
             price_data = await asyncio.get_event_loop().run_in_executor(
                 None,
                 lambda: fetch_prices_parallel(_tracked_symbols, has_clients)
@@ -91,16 +86,16 @@ async def broadcast_loop() -> None:
             prices = {s: d.get("price") for s, d in price_data.items()}
 
             payload = {
-                "type":                  "price_update",
-                "prices":                prices,
-                "alerts":                alerts,
+                "type":    "price_update",
+                "prices":  prices,
+                "alerts":  alerts,
                 "market": {
                     "nse_open": is_nse_open(),
                     "us_open":  is_us_open(),
                 },
-                "sources":        {s: d.get("source", "unknown") for s, d in price_data.items()},
-                "stale_symbols":  [s for s, d in price_data.items() if d.get("stale")],
-                "timestamp":      datetime.utcnow().isoformat(),
+                "sources":       {s: d.get("source", "unknown") for s, d in price_data.items()},
+                "stale_symbols": [s for s, d in price_data.items() if d.get("stale")],
+                "timestamp":     datetime.utcnow().isoformat(),
                 "next_refresh_seconds": interval,
             }
 
@@ -108,7 +103,7 @@ async def broadcast_loop() -> None:
             _last_broadcast = time.monotonic()
 
             if alerts:
-                logger.info(f"🚨 {len(alerts)} alerts · sent to {sent} clients")
+                logger.info(f"🚨 {len(alerts)} alerts · {sent} clients")
 
             error_count = 0
 
@@ -120,5 +115,6 @@ async def broadcast_loop() -> None:
             wait = min(5 * error_count, 60)
             logger.error(f"Broadcast error (#{error_count}): {e}. Retry in {wait}s")
             await asyncio.sleep(wait)
+            continue
 
         await asyncio.sleep(max(interval - MIN_BROADCAST_GAP, 1))

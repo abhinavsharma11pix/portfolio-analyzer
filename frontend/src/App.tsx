@@ -6,6 +6,7 @@ import Navbar from './components/Navbar'
 
 const Home      = lazy(() => import('./pages/Home'))
 const Dashboard = lazy(() => import('./pages/Dashboard'))
+const Recommend = lazy(() => import('./pages/Recommend'))
 
 function PageLoader() {
   return (
@@ -26,6 +27,9 @@ export default function App() {
             } />
             <Route path="/dashboard" element={
               <Suspense fallback={<PageLoader />}><Dashboard /></Suspense>
+            } />
+            <Route path="/recommend" element={
+              <Suspense fallback={<PageLoader />}><Recommend /></Suspense>
             } />
           </Routes>
         </div>

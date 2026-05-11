@@ -44,3 +44,18 @@ export const portfolioApi = {
   marketStatus: () =>
     api.get('/api/market/status'),
 }
+
+  export const recommendationApi = {
+    getGoals: () =>
+      api.get('/api/recommendation/goals'),
+
+    getProfile: (data: {
+      amount: number; goal: string; horizon: string
+      market: string; preferred_sectors?: string[]
+    }) => api.post('/api/recommendation/profile', data),
+
+    generate: (data: {
+      amount: number; goal: string; horizon: string; market: string
+      exchange?: string; preferred_sectors?: string[]
+    }) => api.post('/api/recommendation/generate', data),
+}

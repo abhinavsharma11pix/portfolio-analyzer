@@ -113,6 +113,17 @@ export default function Home() {
             </button>
           </div>
 
+          {/* AI Advisor CTA */}
+          <div className="mt-4 flex items-center justify-center gap-3">
+            <button
+              onClick={() => navigate('/recommend')}
+              className="flex items-center gap-2 border border-purple-700/60 bg-purple-950/20 hover:bg-purple-950/40 text-purple-400 px-6 py-3 rounded-xl font-medium text-sm transition-all"
+            >
+              <Brain size={16} />
+              Build AI Portfolio from Scratch
+            </button>
+          </div>
+
           {/* Trust signals */}
           <div className="flex items-center justify-center gap-6 mt-10 text-sm text-gray-500 flex-wrap">
             {['No signup required', 'Free forever', 'Indian + US stocks', 'Data stays local'].map(t => (

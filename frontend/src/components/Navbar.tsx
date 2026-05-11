@@ -14,6 +14,8 @@ const Navbar = memo(function Navbar({ connected, lastUpdated, nextRefresh }: Pro
   const links = [
     { path: '/',          label: 'Home' },
     { path: '/dashboard', label: 'Dashboard' },
+    { path: '/recommend', label: '✨ AI Advisor' },
+
   ]
 
   return (
