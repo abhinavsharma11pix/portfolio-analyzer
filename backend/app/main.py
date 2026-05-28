@@ -69,33 +69,31 @@ async def timing_middleware(request: Request, call_next):
 
 @app.exception_handler(Exception)
 async def global_error(request: Request, exc: Exception):
-    logger.error(f"Error on {request.url.path}: {exc}", exc_info=True)
-    return ORJSONResponse(
-        status_code=500,
-        content={"detail": "Internal server error"}
-    )
+    logger.error(f"Unhandled error: {exc}", exc_info=True)
+    return ORJSONResponse(status_code=500, content={"detail": "Internal server error"})
 
 
-# ── Routers ────────────────────────────────────────────────────
-from app.api.routes import portfolio
-from app.api.routes.analytics import router as analytics_router
-from app.api.routes.websocket import router as ws_router
+# ── Routers ──────────────────────────────────────────────────
+from app.api.routes.portfolio      import router as portfolio_router
+from app.api.routes.analytics      import router as analytics_router
+from app.api.routes.websocket      import router as ws_router
 from app.api.routes.recommendation import router as rec_router
+from app.api.routes.auth           import router as auth_router
+from app.api.routes.portfolios     import router as portfolios_router
+from app.api.routes.fundamentals   import router as fund_router
 
-app.include_router(portfolio.router,  prefix="/api/portfolio",       tags=["Portfolio"])
-app.include_router(analytics_router,  prefix="/api/analytics",       tags=["Analytics"])
-app.include_router(rec_router,        prefix="/api/recommendation",  tags=["Recommendation"])
+app.include_router(portfolio_router,   prefix="/api/portfolio",      tags=["Portfolio"])
+app.include_router(analytics_router,   prefix="/api/analytics",      tags=["Analytics"])
+app.include_router(rec_router,         prefix="/api/recommendation", tags=["Recommendation"])
+app.include_router(auth_router,        prefix="/api/auth",           tags=["Auth"])
+app.include_router(portfolios_router,  prefix="/api/portfolios",     tags=["Portfolios"])
+app.include_router(fund_router,        prefix="/api/fundamentals",   tags=["Fundamentals"])
 app.include_router(ws_router,                                         tags=["WebSocket"])
 
 
-# ── Health endpoints ───────────────────────────────────────────
 @app.get("/")
 def root():
-    return {
-        "name":    settings.app_name,
-        "version": settings.app_version,
-        "status":  "ok",
-    }
+    return {"name": settings.app_name, "version": settings.app_version, "status": "ok"}
 
 
 @app.get("/health")
@@ -122,12 +120,6 @@ def db_status():
 def market_status():
     from app.core.market_calendar import market_status as ms
     return ms()
-
-
-@app.get("/api/connections")
-def connections():
-    from app.core.connection_manager import manager
-    return {"active": manager.active_count}
 
 
 @app.get("/api/cache/stats")

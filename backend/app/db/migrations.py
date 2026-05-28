@@ -4,141 +4,134 @@ from app.core.database import get_connection
 logger = logging.getLogger(__name__)
 
 SCHEMA = """
+CREATE TABLE IF NOT EXISTS instrument_master (
+    symbol          TEXT PRIMARY KEY,
+    exchange        TEXT DEFAULT 'NSE',
+    currency        TEXT DEFAULT 'INR',
+    sector          TEXT,
+    last_price      REAL,
+    last_updated    TIMESTAMP,
+    is_delisted     INTEGER DEFAULT 0
+);
+
 CREATE TABLE IF NOT EXISTS holdings (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    portfolio_id    TEXT NOT NULL DEFAULT 'default',
     symbol          TEXT NOT NULL,
-    exchange        TEXT NOT NULL DEFAULT 'NSE',
-    currency        TEXT NOT NULL DEFAULT 'INR',
+    exchange        TEXT DEFAULT 'NSE',
+    currency        TEXT DEFAULT 'INR',
     sector          TEXT,
-    quantity        REAL NOT NULL,
-    avg_buy_price   REAL NOT NULL,
+    quantity        REAL,
+    avg_buy_price   REAL,
+    current_price   REAL,
+    invested_value  REAL,
+    current_value   REAL,
+    pnl             REAL,
+    pnl_pct         REAL,
     confidence      REAL DEFAULT 1.0,
-    source          TEXT DEFAULT 'csv',
+    updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS symbol_aliases (
+    raw_input        TEXT PRIMARY KEY,
+    resolved_symbol  TEXT NOT NULL,
+    confidence       REAL DEFAULT 1.0,
+    source           TEXT,
+    use_count        INTEGER DEFAULT 1,
+    created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS metric_snapshots (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    portfolio_id    TEXT DEFAULT 'default',
+    snapshot_date   DATE NOT NULL,
+    total_invested  REAL,
+    total_value     REAL,
+    total_pnl       REAL,
+    total_pnl_pct   REAL,
+    sharpe_ratio    REAL,
+    volatility      REAL,
+    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS users (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    email           TEXT UNIQUE NOT NULL COLLATE NOCASE,
+    username        TEXT UNIQUE NOT NULL,
+    hashed_password TEXT NOT NULL,
+    is_active       INTEGER DEFAULT 1,
+    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_login      TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS refresh_tokens (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token_hash  TEXT UNIQUE NOT NULL,
+    expires_at  TIMESTAMP NOT NULL,
+    created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    revoked     INTEGER DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS user_portfolios (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name         TEXT NOT NULL DEFAULT 'My Portfolio',
+    description  TEXT DEFAULT '',
+    source       TEXT DEFAULT 'manual',
+    is_active    INTEGER DEFAULT 1,
+    created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS portfolio_holdings (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    portfolio_id    INTEGER NOT NULL REFERENCES user_portfolios(id) ON DELETE CASCADE,
+    symbol          TEXT NOT NULL,
+    exchange        TEXT DEFAULT 'NSE',
+    currency        TEXT DEFAULT 'INR',
+    sector          TEXT,
+    quantity        REAL NOT NULL DEFAULT 0,
+    avg_buy_price   REAL NOT NULL DEFAULT 0,
+    current_price   REAL,
+    invested_value  REAL DEFAULT 0,
+    current_value   REAL,
+    pnl             REAL,
+    pnl_pct         REAL,
     created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(portfolio_id, symbol)
 );
 
-CREATE TABLE IF NOT EXISTS transactions (
+CREATE TABLE IF NOT EXISTS portfolio_snapshots (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    portfolio_id    TEXT NOT NULL DEFAULT 'default',
-    symbol          TEXT NOT NULL,
-    txn_type        TEXT NOT NULL,
-    quantity        REAL NOT NULL,
-    price           REAL NOT NULL,
-    total_value     REAL NOT NULL,
-    txn_date        DATE NOT NULL,
-    source          TEXT,
-    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS price_cache (
-    symbol          TEXT PRIMARY KEY,
-    price           REAL NOT NULL,
-    currency        TEXT NOT NULL DEFAULT 'INR',
-    change_pct      REAL,
-    fetched_at      TIMESTAMP NOT NULL,
-    source          TEXT DEFAULT 'yfinance'
-);
-
-CREATE TABLE IF NOT EXISTS price_history (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    symbol          TEXT NOT NULL,
-    date            DATE NOT NULL,
-    open            REAL,
-    high            REAL,
-    low             REAL,
-    close           REAL NOT NULL,
-    volume          REAL,
-    UNIQUE(symbol, date)
-);
-
-CREATE TABLE IF NOT EXISTS metric_snapshots (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    portfolio_id    TEXT NOT NULL DEFAULT 'default',
+    portfolio_id    INTEGER NOT NULL REFERENCES user_portfolios(id) ON DELETE CASCADE,
     snapshot_date   DATE NOT NULL,
-    total_value     REAL,
-    total_invested  REAL,
-    total_pnl       REAL,
-    sharpe_ratio    REAL,
-    volatility      REAL,
-    max_drawdown    REAL,
-    beta            REAL,
-    health_score    REAL,
-    computed_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS predictions (
-    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
-    symbol              TEXT NOT NULL,
-    predicted_at        TIMESTAMP NOT NULL,
-    horizon_days        INTEGER NOT NULL,
-    predicted_price     REAL NOT NULL,
-    confidence_high     REAL,
-    confidence_low      REAL,
-    model_used          TEXT,
-    reliability_score   REAL,
-    UNIQUE(symbol, horizon_days)
-);
-
-CREATE TABLE IF NOT EXISTS alerts (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    portfolio_id    TEXT NOT NULL DEFAULT 'default',
-    alert_type      TEXT NOT NULL,
-    severity        TEXT NOT NULL,
-    message         TEXT NOT NULL,
-    triggered_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    acknowledged    INTEGER DEFAULT 0
-);
-
-CREATE TABLE IF NOT EXISTS instrument_master (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    symbol          TEXT UNIQUE NOT NULL,
-    name            TEXT,
-    exchange        TEXT,
-    currency        TEXT DEFAULT 'INR',
-    sector          TEXT,
-    last_price      REAL,
-    last_updated    TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS symbol_aliases (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    raw_input       TEXT NOT NULL,
-    resolved_symbol TEXT NOT NULL,
-    confidence      REAL NOT NULL,
-    source          TEXT,
-    use_count       INTEGER DEFAULT 1,
+    total_invested  REAL DEFAULT 0,
+    total_value     REAL DEFAULT 0,
+    total_pnl       REAL DEFAULT 0,
+    total_pnl_pct   REAL DEFAULT 0,
+    holdings_count  INTEGER DEFAULT 0,
+    sharpe_ratio    REAL DEFAULT 0,
+    volatility      REAL DEFAULT 0,
     created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(raw_input)
+    UNIQUE(portfolio_id, snapshot_date)
 );
 
-CREATE INDEX IF NOT EXISTS idx_holdings_portfolio
-    ON holdings(portfolio_id);
-CREATE INDEX IF NOT EXISTS idx_price_history_symbol
-    ON price_history(symbol, date);
-CREATE INDEX IF NOT EXISTS idx_price_cache_fetched
-    ON price_cache(fetched_at);
-CREATE INDEX IF NOT EXISTS idx_snapshots_portfolio
-    ON metric_snapshots(portfolio_id, snapshot_date);
-CREATE INDEX IF NOT EXISTS idx_transactions_symbol
-    ON transactions(symbol, txn_date);
-CREATE INDEX IF NOT EXISTS idx_instrument_master_symbol
-    ON instrument_master(symbol);
-CREATE INDEX IF NOT EXISTS idx_symbol_aliases_raw
-    ON symbol_aliases(raw_input);
+CREATE INDEX IF NOT EXISTS idx_users_email         ON users(email);
+CREATE INDEX IF NOT EXISTS idx_refresh_user        ON refresh_tokens(user_id);
+CREATE INDEX IF NOT EXISTS idx_portfolio_user      ON user_portfolios(user_id);
+CREATE INDEX IF NOT EXISTS idx_ph_portfolio        ON portfolio_holdings(portfolio_id);
+CREATE INDEX IF NOT EXISTS idx_ps_portfolio        ON portfolio_snapshots(portfolio_id, snapshot_date);
 """
 
 
 def run_migrations():
-    """Create all tables if they don't exist."""
     try:
         conn = get_connection()
         conn.executescript(SCHEMA)
         conn.commit()
         conn.close()
-        logger.info("✅ Database migrations complete")
+        logger.info("✅ DB migrations complete")
     except Exception as e:
         logger.error(f"❌ Migration failed: {e}")
         raise

@@ -1,22 +1,21 @@
 """
-Real stock scoring engine using yfinance data.
-Computes Sharpe, Sortino, Momentum, Drawdown, Beta per stock.
-Uses batch download for speed.
-Ranks using composite ML-style scoring.
+Real stock scoring engine.
+Fixed batch download with proper MultiIndex handling.
+Falls back to individual downloads if batch fails.
 """
 import logging
 import warnings
 import numpy as np
 import pandas as pd
 import yfinance as yf
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 from app.cache import store as cache
 
 logger   = logging.getLogger(__name__)
 warnings.filterwarnings("ignore")
 
-RF_DAILY = 0.065 / 252  # 6.5% annual Indian risk-free rate
-BATCH_SIZE = 30         # Download 30 symbols at once
+RF_DAILY   = 0.065 / 252
+BATCH_SIZE = 20          # smaller batches = more reliable
 
 
 def score_stocks_batch(
@@ -25,43 +24,47 @@ def score_stocks_batch(
     period:       str = "1y",
 ) -> List[Dict]:
     """
-    Score all stocks using real market data.
-    Downloads in batches of BATCH_SIZE to avoid rate limits.
-    Returns scored list sorted by composite score descending.
+    Score stocks using real yfinance data.
+    Uses small batches + individual fallback for reliability.
     """
-    symbols = [s["symbol"] for s in symbols_info]
+    if not symbols_info:
+        return []
+
+    symbols  = [s["symbol"] for s in symbols_info]
     info_map = {s["symbol"]: s for s in symbols_info}
 
-    # Cache check per symbol batch
-    cache_key = f"scores:{'|'.join(sorted(symbols[:50]))}:{period}"
-    cached    = cache.get(cache_key, 7200, disk=True)
+    # Cache check
+    key_symbols = sorted(symbols[:30])  # cache on first 30 for speed
+    cache_key   = f"scores_v2:{'|'.join(key_symbols)}:{period}"
+    cached      = cache.get(cache_key, 7200, disk=True)
     if cached:
-        logger.info(f"Scores from cache: {len(cached)} stocks")
+        logger.info(f"Scores from cache: {len(cached)}")
         return cached
 
-    # Download benchmark once
+    # Download benchmark
     bench_ret = _download_benchmark(benchmark, period)
 
     all_scored: List[Dict] = []
 
-    # Process in batches
+    # Process in small batches
     for i in range(0, len(symbols), BATCH_SIZE):
         batch  = symbols[i:i + BATCH_SIZE]
         scored = _score_batch(batch, info_map, bench_ret, period)
         all_scored.extend(scored)
+        logger.info(f"Scored batch {i//BATCH_SIZE + 1}: {len(scored)}/{len(batch)} stocks")
 
-    # Sort by composite score descending
+    # Sort by composite score
     all_scored.sort(key=lambda x: -x.get("composite_score", 0))
 
-    if all_scored:
+    if len(all_scored) >= 3:
         cache.set(cache_key, all_scored, 7200, disk=True)
 
-    logger.info(f"Scored {len(all_scored)}/{len(symbols)} stocks")
+    logger.info(f"Total scored: {len(all_scored)}/{len(symbols)} stocks")
     return all_scored
 
 
 def _download_benchmark(benchmark: str, period: str) -> pd.Series:
-    key    = f"bench:{benchmark}:{period}"
+    key    = f"bench_v2:{benchmark}:{period}"
     cached = cache.get(key, 7200, disk=True)
     if cached:
         return pd.Series(cached)
@@ -71,156 +74,164 @@ def _download_benchmark(benchmark: str, period: str) -> pd.Series:
             auto_adjust=True, progress=False, timeout=15
         )
         if not data.empty:
-            ret = data["Close"].squeeze().pct_change().dropna()
-            cache.set(key, ret.tolist(), 7200, disk=True)
-            return ret
+            prices = data["Close"].squeeze() if "Close" in data.columns else data.iloc[:, 0]
+            ret    = prices.pct_change().dropna()
+            if len(ret) > 20:
+                cache.set(key, ret.tolist(), 7200, disk=True)
+                return ret
     except Exception as e:
-        logger.warning(f"Benchmark download failed: {e}")
+        logger.debug(f"Benchmark download failed: {e}")
     return pd.Series(dtype=float)
 
 
 def _score_batch(
-    symbols:    List[str],
-    info_map:   Dict[str, Dict],
-    bench_ret:  pd.Series,
-    period:     str,
+    symbols:   List[str],
+    info_map:  Dict[str, Dict],
+    bench_ret: pd.Series,
+    period:    str,
 ) -> List[Dict]:
-    """Download and score a batch of symbols."""
+    """Download a small batch and score each symbol."""
     if not symbols:
         return []
 
-    try:
-        raw = yf.download(
-            symbols, period=period,
-            auto_adjust=True, progress=False,
-            timeout=20, threads=True,
-        )
-        if raw.empty:
-            return []
+    prices_map: Dict[str, pd.Series] = {}
 
-        # Extract Close prices
-        if isinstance(raw.columns, pd.MultiIndex):
-            if "Close" in raw.columns.get_level_values(0):
-                prices = raw["Close"]
-            elif "Close" in raw.columns.get_level_values(1):
-                prices = raw.xs("Close", axis=1, level=1)
-            else:
-                return []
-        else:
-            col    = "Close" if "Close" in raw.columns else raw.columns[0]
-            prices = raw[[col]].rename(columns={col: symbols[0]})
-
-        prices  = prices.ffill().dropna(how="all")
-        returns = prices.pct_change().dropna()
-
-    except Exception as e:
-        logger.debug(f"Batch download failed for {symbols[:3]}...: {e}")
-        return []
-
-    scored = []
-    for sym in symbols:
-        if sym not in returns.columns:
-            continue
-
-        r = returns[sym].dropna()
-        p = prices[sym].dropna()
-
-        if len(r) < 50:  # need at least 50 trading days
-            continue
-
+    # Try batch download first
+    if len(symbols) > 1:
         try:
-            scored.append(_compute_score(sym, r, p, bench_ret, info_map.get(sym, {})))
-        except Exception:
-            continue
+            raw = yf.download(
+                symbols, period=period,
+                auto_adjust=True, progress=False,
+                timeout=25, threads=True,
+            )
+            if not raw.empty:
+                # Extract close prices robustly
+                if isinstance(raw.columns, pd.MultiIndex):
+                    lvl0 = raw.columns.get_level_values(0).unique().tolist()
+                    lvl1 = raw.columns.get_level_values(1).unique().tolist()
+                    if "Close" in lvl0:
+                        close_df = raw["Close"]
+                    elif "Close" in lvl1:
+                        close_df = raw.xs("Close", axis=1, level=1)
+                    else:
+                        close_df = raw.iloc[:, :len(symbols)]
+                        close_df.columns = symbols[:len(close_df.columns)]
+                else:
+                    close_df = raw["Close"] if "Close" in raw.columns else raw
+
+                close_df = close_df.ffill()
+                for sym in symbols:
+                    if sym in close_df.columns:
+                        s = close_df[sym].dropna()
+                        if len(s) >= 50:
+                            prices_map[sym] = s
+        except Exception as e:
+            logger.debug(f"Batch download failed: {e}")
+
+    # Individual fallback for symbols that failed batch
+    failed = [s for s in symbols if s not in prices_map]
+    if failed:
+        for sym in failed:
+            try:
+                t    = yf.Ticker(sym)
+                hist = t.history(period=period, timeout=10)
+                if not hist.empty and len(hist) >= 50:
+                    prices_map[sym] = hist["Close"]
+            except Exception:
+                pass
+
+    # Score each available symbol
+    scored = []
+    for sym, prices in prices_map.items():
+        try:
+            result = _compute_score(sym, prices, bench_ret, info_map.get(sym, {}))
+            scored.append(result)
+        except Exception as e:
+            logger.debug(f"Score computation failed for {sym}: {e}")
 
     return scored
 
 
 def _compute_score(
     symbol:    str,
-    returns:   pd.Series,
     prices:    pd.Series,
     bench_ret: pd.Series,
     info:      Dict,
 ) -> Dict:
-    """Compute all metrics for a single stock."""
-    n = len(returns)
+    prices  = prices.dropna()
+    returns = prices.pct_change().dropna()
+    n       = len(returns)
 
-    # ── Sharpe ratio ─────────────────────────────────────────
-    std = returns.std()
+    if n < 30:
+        return _default_score(symbol, info)
+
+    # Sharpe
+    std    = returns.std()
     sharpe = float((returns.mean() - RF_DAILY) / std * np.sqrt(252)) if std > 0 else 0.0
-    sharpe = max(-3.0, min(5.0, sharpe))
+    sharpe = float(np.clip(sharpe, -3, 5))
 
-    # ── Sortino ratio ─────────────────────────────────────────
-    neg    = returns[returns < 0]
-    dstd   = neg.std() if len(neg) > 1 else std
+    # Sortino
+    neg     = returns[returns < 0]
+    dstd    = neg.std() if len(neg) > 1 else std
     sortino = float((returns.mean() - RF_DAILY) / dstd * np.sqrt(252)) if dstd > 0 else 0.0
 
-    # ── Annualized volatility ─────────────────────────────────
+    # Volatility
     vol = float(std * np.sqrt(252) * 100)
 
-    # ── Momentum ─────────────────────────────────────────────
-    mom_1y = float((prices.iloc[-1] / prices.iloc[0] - 1) * 100) if len(prices) > 1 else 0.0
+    # Momentum
+    mom_1y = float((prices.iloc[-1] / prices.iloc[0]  - 1) * 100) if len(prices) > 1   else 0.0
     mid    = max(1, len(prices) // 2)
-    mom_6m = float((prices.iloc[-1] / prices.iloc[mid] - 1) * 100)
-    mom_1m = float((prices.iloc[-1] / prices.iloc[max(0, len(prices)-21)] - 1) * 100)
+    mom_6m = float((prices.iloc[-1] / prices.iloc[mid] - 1) * 100) if mid > 0           else 0.0
+    mo_1m  = float((prices.iloc[-1] / prices.iloc[max(0, len(prices)-21)] - 1) * 100)
 
-    # ── Max drawdown ─────────────────────────────────────────
-    cum     = (1 + returns).cumprod()
-    peak    = cum.cummax()
-    dd_ser  = (cum - peak) / peak.replace(0, np.nan)
-    max_dd  = float(dd_ser.min() * 100) if not dd_ser.empty else 0.0
+    # Max drawdown
+    cum   = (1 + returns).cumprod()
+    peak  = cum.cummax()
+    denom = peak.replace(0, np.nan)
+    max_dd = float(((cum - peak) / denom).min() * 100)
 
-    # ── Beta vs benchmark ─────────────────────────────────────
+    # Beta
     beta = 1.0
     if len(bench_ret) > 30:
         aligned = pd.concat([returns, bench_ret], axis=1).dropna()
         if len(aligned) > 30:
             cov  = np.cov(aligned.iloc[:, 0], aligned.iloc[:, 1])
             if abs(cov[1][1]) > 1e-10:
-                beta = float(cov[0][1] / cov[1][1])
-                beta = max(-2.0, min(4.0, beta))
+                beta = float(np.clip(cov[0][1] / cov[1][1], -2, 4))
 
-    # ── Trend score (R² of price vs time) ────────────────────
-    x       = np.arange(len(prices))
-    y       = prices.values
-    if len(x) > 10:
-        p2     = np.polyfit(x, y, 1)
-        y_hat  = np.polyval(p2, x)
-        ss_res = np.sum((y - y_hat) ** 2)
-        ss_tot = np.sum((y - y.mean()) ** 2)
-        r2     = 1 - ss_res / ss_tot if ss_tot > 0 else 0
-        trend  = float(r2 * np.sign(p2[0]))  # positive if uptrend, negative if down
+    # Trend R²
+    x = np.arange(len(prices))
+    y = prices.values.astype(float)
+    if len(x) > 10 and y.std() > 0:
+        p2    = np.polyfit(x, y, 1)
+        y_hat = np.polyval(p2, x)
+        ss_r  = np.sum((y - y_hat) ** 2)
+        ss_t  = np.sum((y - y.mean()) ** 2)
+        r2    = 1 - ss_r / ss_t if ss_t > 0 else 0
+        trend = float(r2 * np.sign(p2[0]))
     else:
         trend = 0.0
 
-    # ── Composite score (0–100) ──────────────────────────────
-    # Weights: Sharpe 35%, Sortino 15%, Momentum 25%, Drawdown 15%, Trend 10%
-    sh_norm  = _norm(sharpe,   lo=-2, hi=3)   # -2→0, 3→100
-    so_norm  = _norm(sortino,  lo=-2, hi=4)
-    mo_norm  = _norm(mom_1y,   lo=-40, hi=80) # -40%→0, +80%→100
-    dd_norm  = _norm(max_dd,   lo=-60, hi=0)  # -60→0, 0→100 (inverted)
-    tr_norm  = _norm(trend,    lo=-1, hi=1)
+    # Composite 0-100
+    sh_n  = _norm(sharpe,  -2,   3)
+    so_n  = _norm(sortino, -2,   4)
+    mo_n  = _norm(mom_1y,  -40, 80)
+    dd_n  = _norm(max_dd,  -60,  0)
+    tr_n  = _norm(trend,   -1,   1)
 
-    composite = (
-        sh_norm * 0.35
-        + so_norm * 0.15
-        + mo_norm * 0.25
-        + dd_norm * 0.15
-        + tr_norm * 0.10
-    )
-    composite = round(min(100, max(0, composite)), 1)
+    composite = (sh_n*0.35 + so_n*0.15 + mo_n*0.25 + dd_n*0.15 + tr_n*0.10)
+    composite = round(float(np.clip(composite, 0, 100)), 1)
 
     return {
         "symbol":          symbol,
-        "name":            info.get("name", symbol),
+        "name":            info.get("name", symbol.replace(".NS","").replace(".BO","")),
         "sector":          info.get("sector", "Other"),
         "sharpe":          round(sharpe, 3),
         "sortino":         round(sortino, 3),
         "volatility":      round(vol, 1),
         "momentum_1y":     round(mom_1y, 2),
         "momentum_6m":     round(mom_6m, 2),
-        "momentum_1m":     round(mom_1m, 2),
+        "momentum_1m":     round(mo_1m, 2),
         "max_drawdown":    round(max_dd, 2),
         "beta":            round(beta, 3),
         "trend":           round(trend, 3),
@@ -230,27 +241,34 @@ def _compute_score(
 
 
 def _norm(val: float, lo: float, hi: float) -> float:
-    """Normalize value to 0–100."""
     if hi == lo:
         return 50.0
-    return min(100.0, max(0.0, (val - lo) / (hi - lo) * 100))
+    return float(np.clip((val - lo) / (hi - lo) * 100, 0, 100))
+
+
+def _default_score(symbol: str, info: Dict) -> Dict:
+    return {
+        "symbol": symbol,
+        "name":   info.get("name", symbol.replace(".NS","").replace(".BO","")),
+        "sector": info.get("sector", "Other"),
+        "sharpe": 0.0, "sortino": 0.0, "volatility": 20.0,
+        "momentum_1y": 0.0, "momentum_6m": 0.0, "momentum_1m": 0.0,
+        "max_drawdown": -15.0, "beta": 1.0, "trend": 0.0,
+        "composite_score": 30.0, "n_days": 0,
+    }
 
 
 def select_top_n(
-    scored:    List[Dict],
-    n:         int,
+    scored:         List[Dict],
+    n:              int,
     max_sector_pct: float = 0.50,
 ) -> List[Dict]:
-    """
-    Select top N stocks with sector diversification constraint.
-    Ensures no single sector dominates beyond max_sector_pct.
-    """
     if not scored:
         return []
 
-    selected:       List[Dict] = []
-    sector_counts:  Dict[str, int] = {}
-    max_per_sector  = max(1, int(n * max_sector_pct))
+    selected:      List[Dict]      = []
+    sector_counts: Dict[str, int]  = {}
+    max_per_sector = max(1, int(n * max_sector_pct))
 
     for stock in scored:
         if len(selected) >= n:
@@ -261,13 +279,14 @@ def select_top_n(
             selected.append(stock)
             sector_counts[sec] = count + 1
 
-    # If still short, fill with best remaining regardless of sector
+    # Fill remaining if needed
     if len(selected) < n:
-        selected_syms = {s["symbol"] for s in selected}
+        seen = {s["symbol"] for s in selected}
         for stock in scored:
             if len(selected) >= n:
                 break
-            if stock["symbol"] not in selected_syms:
+            if stock["symbol"] not in seen:
                 selected.append(stock)
+                seen.add(stock["symbol"])
 
     return selected[:n]

@@ -27,9 +27,9 @@ MAX_HOLDINGS = 100
 
 @router.post("/upload")
 async def upload_portfolio(
-    file:             UploadFile = File(...),
-    source:           str        = Query(default="auto"),
-    background_tasks: BackgroundTasks = None,
+    file:             UploadFile       = File(...),
+    source:           str              = Query(default="auto"),
+    background_tasks: BackgroundTasks  = None,
 ):
     t0    = time.monotonic()
     fname = (file.filename or "").lower()
@@ -56,19 +56,15 @@ async def upload_portfolio(
     if not holdings:
         raise HTTPException(422, "No valid holdings found")
 
-    # Filter delisted symbols
-    valid     = [h for h in holdings if not is_delisted(h["symbol"])]
-    delisted  = [h for h in holdings if is_delisted(h["symbol"])]
+    valid    = [h for h in holdings if not is_delisted(h["symbol"])]
+    delisted = [h for h in holdings if is_delisted(h["symbol"])]
 
     if not valid:
         raise HTTPException(422, "All symbols appear delisted or unavailable")
 
-    valid = valid[:MAX_HOLDINGS]
-
-    # Enrich with live prices
+    valid    = valid[:MAX_HOLDINGS]
     enriched = enrich_portfolio(valid)
 
-    # Background: DB save + instrument sync
     def _bg_save():
         try:
             holdings_repo.upsert(enriched["holdings"])
@@ -169,14 +165,12 @@ async def get_decisions(payload: dict):
     if cached:
         return ORJSONResponse(cached)
 
-    decisions = generate_decisions(
-        holdings=holdings,
-        risk_metrics=risk_metrics,
+    decisions   = generate_decisions(
+        holdings=holdings, risk_metrics=risk_metrics,
         advanced_metrics=advanced_metrics,
-        predictions=predictions,
-        summary=summary,
+        predictions=predictions, summary=summary,
     )
-    score = calculate_portfolio_score(holdings, risk_metrics)
+    score       = calculate_portfolio_score(holdings, risk_metrics)
     explanation = generate_decision_explanation(
         [d.to_dict() for d in decisions], score, risk_metrics
     )
@@ -193,11 +187,11 @@ async def get_decisions(payload: dict):
         "decisions":       {"critical": critical, "high": high, "medium": medium, "low": low},
         "all_decisions":   [d.to_dict() for d in decisions],
         "summary": {
-            "critical_count":   len(critical),
-            "high_count":       len(high),
-            "medium_count":     len(medium),
-            "low_count":        len(low),
-            "action_required":  len(critical) + len(high) > 0,
+            "critical_count":  len(critical),
+            "high_count":      len(high),
+            "medium_count":    len(medium),
+            "low_count":       len(low),
+            "action_required": len(critical) + len(high) > 0,
         },
     }
     cache.set(key, result, cache.TTL_ANALYTICS)
