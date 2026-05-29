@@ -9,6 +9,8 @@ from fastapi.responses import ORJSONResponse
 from app.core.config import get_settings
 from app.db.migrations import run_migrations
 
+
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -81,6 +83,12 @@ from app.api.routes.recommendation import router as rec_router
 from app.api.routes.auth           import router as auth_router
 from app.api.routes.portfolios     import router as portfolios_router
 from app.api.routes.fundamentals   import router as fund_router
+from app.api.routes.alerts         import router as alerts_router
+from app.api.routes.tax            import router as tax_router
+from app.api.routes.reports import router as reports_router
+from app.api.routes.alerts  import router as alerts_router
+from app.api.routes.tax     import router as tax_router
+
 
 app.include_router(portfolio_router,   prefix="/api/portfolio",      tags=["Portfolio"])
 app.include_router(analytics_router,   prefix="/api/analytics",      tags=["Analytics"])
@@ -89,7 +97,11 @@ app.include_router(auth_router,        prefix="/api/auth",           tags=["Auth
 app.include_router(portfolios_router,  prefix="/api/portfolios",     tags=["Portfolios"])
 app.include_router(fund_router,        prefix="/api/fundamentals",   tags=["Fundamentals"])
 app.include_router(ws_router,                                         tags=["WebSocket"])
-
+app.include_router(alerts_router, prefix="/api/alerts", tags=["Alerts"])
+app.include_router(tax_router,    prefix="/api/tax",    tags=["Tax"])
+app.include_router(reports_router, prefix="/api/reports", tags=["Reports"])
+app.include_router(alerts_router,  prefix="/api/alerts",  tags=["Alerts"])
+app.include_router(tax_router,     prefix="/api/tax",     tags=["Tax"])
 
 @app.get("/")
 def root():

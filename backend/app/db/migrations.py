@@ -124,11 +124,63 @@ CREATE INDEX IF NOT EXISTS idx_ph_portfolio        ON portfolio_holdings(portfol
 CREATE INDEX IF NOT EXISTS idx_ps_portfolio        ON portfolio_snapshots(portfolio_id, snapshot_date);
 """
 
+ALERTS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS alert_rules (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id         INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    symbol          TEXT NOT NULL,
+    alert_type      TEXT NOT NULL,
+    threshold       REAL NOT NULL,
+    direction       TEXT DEFAULT 'both',
+    is_active       INTEGER DEFAULT 1,
+    notify_email    INTEGER DEFAULT 0,
+    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    triggered_count INTEGER DEFAULT 0,
+    last_triggered  TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS alert_history (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    rule_id      INTEGER REFERENCES alert_rules(id) ON DELETE SET NULL,
+    symbol       TEXT NOT NULL,
+    alert_type   TEXT NOT NULL,
+    message      TEXT NOT NULL,
+    value        REAL,
+    threshold    REAL,
+    severity     TEXT DEFAULT 'medium',
+    is_read      INTEGER DEFAULT 0,
+    created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS trades (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id       INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    portfolio_id  INTEGER REFERENCES user_portfolios(id) ON DELETE CASCADE,
+    symbol        TEXT NOT NULL,
+    trade_type    TEXT NOT NULL CHECK(trade_type IN ('BUY','SELL')),
+    quantity      REAL NOT NULL,
+    price         REAL NOT NULL,
+    total_amount  REAL NOT NULL,
+    trade_date    DATE NOT NULL,
+    exchange      TEXT DEFAULT 'NSE',
+    currency      TEXT DEFAULT 'INR',
+    notes         TEXT,
+    created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_alert_rules_symbol ON alert_rules(symbol);
+CREATE INDEX IF NOT EXISTS idx_alert_rules_user   ON alert_rules(user_id);
+CREATE INDEX IF NOT EXISTS idx_alert_history_read ON alert_history(is_read);
+CREATE INDEX IF NOT EXISTS idx_trades_user        ON trades(user_id, symbol);
+CREATE INDEX IF NOT EXISTS idx_trades_portfolio   ON trades(portfolio_id);
+"""
+
 
 def run_migrations():
     try:
         conn = get_connection()
         conn.executescript(SCHEMA)
+        conn.executescript(ALERTS_SCHEMA)
         conn.commit()
         conn.close()
         logger.info("✅ DB migrations complete")
