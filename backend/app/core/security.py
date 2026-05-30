@@ -1,9 +1,15 @@
+"""
+Auth security — uses bcrypt directly (no passlib).
+Avoids bcrypt 4.x / passlib incompatibility.
+"""
 import os
 import logging
+import hashlib
+import hmac
+import bcrypt
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any
 from jose import JWTError, jwt
-from passlib.context import CryptContext
 
 logger = logging.getLogger(__name__)
 
@@ -12,24 +18,48 @@ ALGORITHM      = "HS256"
 ACCESS_EXPIRE  = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
 REFRESH_EXPIRE = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS",   "30"))
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+def _prepare_password(password: str) -> bytes:
+    """
+    Pre-hash with SHA-256 before bcrypt to support passwords > 72 bytes.
+    This is a standard pattern used by Django, Flask-Bcrypt etc.
+    """
+    return hashlib.sha256(password.encode("utf-8")).hexdigest().encode("utf-8")
 
 
 def hash_password(password: str) -> str:
-    return pwd_context.hash(password)
+    """Hash password using bcrypt with SHA-256 pre-hash."""
+    prepared = _prepare_password(password)
+    salt     = bcrypt.gensalt(rounds=12)
+    hashed   = bcrypt.hashpw(prepared, salt)
+    return hashed.decode("utf-8")
 
 
 def verify_password(plain: str, hashed: str) -> bool:
-    return pwd_context.verify(plain, hashed)
+    """Verify password against bcrypt hash."""
+    try:
+        prepared = _prepare_password(plain)
+        return bcrypt.checkpw(prepared, hashed.encode("utf-8"))
+    except Exception as e:
+        logger.warning(f"Password verification error: {e}")
+        return False
 
 
 def create_access_token(data: Dict[str, Any]) -> str:
-    payload = {**data, "exp": datetime.now(timezone.utc) + timedelta(minutes=ACCESS_EXPIRE), "type": "access"}
+    payload = {
+        **data,
+        "exp":  datetime.now(timezone.utc) + timedelta(minutes=ACCESS_EXPIRE),
+        "type": "access",
+    }
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
 
 def create_refresh_token(data: Dict[str, Any]) -> str:
-    payload = {**data, "exp": datetime.now(timezone.utc) + timedelta(days=REFRESH_EXPIRE), "type": "refresh"}
+    payload = {
+        **data,
+        "exp":  datetime.now(timezone.utc) + timedelta(days=REFRESH_EXPIRE),
+        "type": "refresh",
+    }
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
 
