@@ -52,3 +52,9 @@ def get_settings() -> Settings:
         debug=os.getenv("DEBUG", "false").lower() == "true",
         environment=os.getenv("ENVIRONMENT", "development"),
     )
+    
+
+SECRET_KEY   = os.getenv("JWT_SECRET_KEY", "dev-only-change-in-prod")
+ENVIRONMENT  = os.getenv("ENVIRONMENT", "development")
+DATABASE_URL = os.getenv("DATABASE_URL", "/data/portfolio.db" if os.path.exists("/data") else "portfolio.db")
+CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://localhost:3000").split(",")

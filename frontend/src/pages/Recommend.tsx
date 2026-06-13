@@ -1,698 +1,1116 @@
-import { useState, useCallback, memo } from 'react'
+/**
+ * AI Investment Advisor — Recommend.tsx
+ * Full 6-step wizard + results with whole-share display
+ * Whole shares only: "3 shares × Rs.1,160 = Rs.3,480"
+ */
+import {
+  useState, useCallback, memo,
+} from 'react'
 import { useNavigate } from 'react-router-dom'
 import axios from 'axios'
 import {
-  ArrowRight, ArrowLeft, Brain, Shield,
-  CheckCircle, AlertTriangle, ChevronRight,
-  Minus, Plus, TrendingUp, Activity
+  Sparkles, AlertTriangle, CheckCircle, Info,
+  BarChart3, Shield, Zap, Target, ArrowRight,
+  RefreshCw, DollarSign, PieChart,
+  Clock, Briefcase, ChevronDown, ChevronUp,
+  ChevronLeft,
 } from 'lucide-react'
 
-/* ── Types ── */
+const API = 'http://localhost:8000'
+
+// ── Types ─────────────────────────────────────────────────────
+
 interface StockRec {
-  symbol: string; name: string; sector: string
-  allocation_pct: number; allocation_amount: number
-  role: string; why: string; risk_contribution: string
-  momentum_score: number; sharpe_estimate: number
-  volatility: number; composite_score: number
-  momentum_1y: number; max_drawdown: number; beta: number
+  symbol:             string
+  name:               string
+  sector:             string
+  allocation_pct:     number
+  allocation_amount:  number
+  shares_to_buy?:     number
+  price_per_share?:   number
+  total_cost?:        number
+  share_summary?:     string
+  role:               string
+  why:                string
+  risk_contribution:  string
+  momentum_score:     number
+  sharpe_estimate:    number
+  volatility:         number
+  composite_score:    number
+  momentum_1y:        number
+  max_drawdown:       number
+  beta:               number
 }
+
 interface RecommendationResult {
   profile: {
-    category: string; confidence: number; explanation: string
-    equity_pct: number; etf_pct: number; volatility_target: number
+    category:          string
+    confidence:        number
+    explanation:       string
+    equity_pct:        number
+    volatility_target: number
   }
-  stocks: StockRec[]
-  total_amount: number; expected_return: number; expected_volatility: number
-  diversification_score: number; portfolio_score: number
-  weighted_sharpe: number; weighted_beta: number
-  score_breakdown: Record<string, number>
-  ai_commentary: string
-  sector_allocation: { sector: string; weight_pct: number }[]
-  risk_warnings: string[]; strengths: string[]
-  data_note: string; sectors_used: string[]
+  stocks:                StockRec[]
+  total_amount:          number
+  total_invested?:       number
+  uninvested_cash?:      number
+  expected_return:       number
+  expected_volatility:   number
+  portfolio_score:       number
+  diversification_score: number
+  weighted_sharpe:       number
+  weighted_beta:         number
+  ai_commentary:         string
+  sector_allocation:     { sector: string; weight_pct: number }[]
+  risk_warnings:         string[]
+  strengths:             string[]
+  data_note:             string
+  score_breakdown?:      Record<string, number>
+  warnings?:             string[]
+  n_sectors?:            number   // fix: add missing field
 }
 
-const STEPS = ['Capital', 'Market', 'Horizon', 'Goal', 'Sectors', 'Stocks', 'Result']
+// ── Constants ─────────────────────────────────────────────────
 
-const GOALS = [
-  { value: 'wealth_creation', label: 'Wealth Creation',    icon: '📈', desc: 'Grow capital over time' },
-  { value: 'passive_growth',  label: 'Passive Growth',     icon: '🌱', desc: 'Steady, low-effort returns' },
-  { value: 'retirement',      label: 'Retirement',         icon: '🏖️', desc: 'Long-term capital safety' },
-  { value: 'high_growth',     label: 'High Growth',        icon: '🚀', desc: 'Maximum upside potential' },
-  { value: 'dividend_income', label: 'Dividend Income',    icon: '💰', desc: 'Regular income from portfolio' },
-  { value: 'low_risk',        label: 'Capital Protection', icon: '🛡️', desc: 'Minimize downside risk' },
-  { value: 'learning',        label: 'Learning Mode',      icon: '🎓', desc: 'Explore with small amounts' },
+const PRESETS = [10_000, 50_000, 1_00_000, 5_00_000, 10_00_000]
+
+const MARKETS = [
+  { value: 'india', label: 'India (NSE)',      flag: '🇮🇳' },
+  { value: 'us',    label: 'US (NYSE/NASDAQ)', flag: '🇺🇸' },
+  { value: 'both',  label: 'Global Mix',       flag: '🌏' },
 ]
 
 const HORIZONS = [
-  { value: 'short',  label: 'Short Term',  sub: '< 1 year',   icon: '⚡', color: 'border-yellow-700/60 bg-yellow-950/20 hover:border-yellow-600' },
-  { value: 'medium', label: 'Medium Term', sub: '1–3 years',  icon: '📅', color: 'border-blue-700/60 bg-blue-950/20 hover:border-blue-600' },
-  { value: 'long',   label: 'Long Term',   sub: '3+ years',   icon: '🏔️', color: 'border-green-700/60 bg-green-950/20 hover:border-green-600' },
+  { value: 'short',  label: 'Short',  desc: '< 1 year',  icon: <Zap size={16} /> },
+  { value: 'medium', label: 'Medium', desc: '1–3 years', icon: <Clock size={16} /> },
+  { value: 'long',   label: 'Long',   desc: '3+ years',  icon: <Target size={16} /> },
 ]
 
-const MARKETS = [
-  { value: 'india', label: 'India',         flag: '🇮🇳', sub: 'NSE / BSE — all listed stocks', color: 'border-orange-700/60 bg-orange-950/20 hover:border-orange-600' },
-  { value: 'us',    label: 'United States', flag: '🇺🇸', sub: 'S&P 500 universe',              color: 'border-blue-700/60 bg-blue-950/20 hover:border-blue-600' },
+const GOALS = [
+  { value: 'wealth_creation', label: 'Wealth Creation', icon: '💰' },
+  { value: 'passive_growth',  label: 'Passive Growth',  icon: '📈' },
+  { value: 'high_growth',     label: 'High Growth',     icon: '🚀' },
+  { value: 'retirement',      label: 'Retirement',      icon: '🏖️' },
+  { value: 'dividend_income', label: 'Dividend Income', icon: '💵' },
+  { value: 'low_risk',        label: 'Low Risk',        icon: '🛡️' },
 ]
 
-const SECTORS_INDIA = ['Technology','Banking','Healthcare','FMCG','Energy','Finance','Auto','Infra','Consumer','Pharma','Defense','IT','Metals']
-const SECTORS_US    = ['Technology','Finance','Healthcare','Consumer','Energy','Infra','Metals']
+const SECTORS = [
+  'Technology', 'Banking', 'Finance', 'Healthcare',
+  'Energy', 'FMCG', 'Auto', 'Infra', 'IT',
+  'Pharma', 'Consumer', 'Realty',
+]
 
-const PROFILE_COLORS: Record<string, string> = {
-  conservative: 'text-green-400 bg-green-950/30 border-green-800',
-  moderate:     'text-blue-400 bg-blue-950/30 border-blue-800',
-  aggressive:   'text-orange-400 bg-orange-950/30 border-orange-800',
-  high_growth:  'text-red-400 bg-red-950/30 border-red-800',
-}
+const STOCK_COUNTS = [5, 6, 7, 8, 10]
 
 const ROLE_BADGE: Record<string, string> = {
-  growth:    'bg-blue-900/40 text-blue-400',
-  stability: 'bg-green-900/40 text-green-400',
-  dividend:  'bg-yellow-900/40 text-yellow-400',
-  balanced:  'bg-purple-900/40 text-purple-400',
-  recovery:  'bg-orange-900/40 text-orange-400',
+  growth:    'bg-green-900/30 text-green-400',
+  stability: 'bg-blue-900/30 text-blue-400',
+  recovery:  'bg-orange-900/30 text-orange-400',
+  balanced:  'bg-purple-900/30 text-purple-400',
 }
 
-function Progress({ step }: { step: number }) {
-  const visible = STEPS.slice(0, -1)
+const PROFILE_COLOR: Record<string, string> = {
+  conservative: 'text-blue-400',
+  moderate:     'text-green-400',
+  aggressive:   'text-orange-400',
+  high_growth:  'text-red-400',
+}
+
+// ── Helpers ───────────────────────────────────────────────────
+
+function fmtInr(v: number): string {
+  if (v >= 1_00_00_000) return `Rs.${(v / 1_00_00_000).toFixed(2)} Cr`
+  if (v >= 1_00_000)    return `Rs.${(v / 1_00_000).toFixed(2)}L`
+  return `Rs.${v.toLocaleString('en-IN')}`
+}
+
+function ScoreBar({ value, max = 100, color = 'bg-blue-500' }: {
+  value: number; max?: number; color?: string
+}) {
   return (
-    <div className="flex items-center gap-1.5 mb-8 overflow-x-auto pb-1">
-      {visible.map((s, i) => (
-        <div key={s} className="flex items-center gap-1.5 shrink-0">
-          <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-all ${
-            i < step  ? 'bg-blue-600 text-white' :
-            i === step ? 'bg-blue-600/30 border-2 border-blue-500 text-blue-400' :
-            'bg-gray-800 text-gray-600'
-          }`}>
-            {i < step ? '✓' : i + 1}
-          </div>
-          <span className={`text-xs hidden md:block ${
-            i === step ? 'text-white' : i < step ? 'text-blue-400' : 'text-gray-600'
-          }`}>{s}</span>
-          {i < visible.length - 1 && (
-            <div className={`w-4 h-px ${i < step ? 'bg-blue-600' : 'bg-gray-800'}`} />
-          )}
-        </div>
-      ))}
+    <div className="flex items-center gap-2">
+      <div className="flex-1 bg-gray-800 rounded-full h-1.5 overflow-hidden">
+        <div
+          className={`h-full ${color} rounded-full transition-all duration-700`}
+          style={{ width: `${Math.min(100, (value / max) * 100)}%` }}
+        />
+      </div>
+      <span className="text-xs text-gray-500 tabular-nums w-8 text-right">{value}</span>
     </div>
   )
 }
 
-function fmtAmount(n: number, market: string): string {
-  const p = market === 'us' ? '$' : '₹'
-  if (n >= 10000000) return `${p}${(n/10000000).toFixed(1)}Cr`
-  if (n >= 100000)   return `${p}${(n/100000).toFixed(1)}L`
-  if (n >= 1000)     return `${p}${(n/1000).toFixed(1)}K`
-  return `${p}${n.toLocaleString()}`
+// ── Step components ───────────────────────────────────────────
+
+// fix: removed unused `total` prop
+function StepIndicator({ current }: { current: number }) {
+  const labels = ['Capital', 'Market', 'Horizon', 'Goal', 'Sectors', 'Stocks']
+  return (
+    <div className="flex items-center justify-center gap-1 mb-8 flex-wrap">
+      {labels.map((lbl, i) => {
+        const step   = i + 1
+        const active = step === current
+        const done   = step < current
+        return (
+          <div key={lbl} className="flex items-center">
+            <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
+              active ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30' :
+              done   ? 'bg-green-900/40 text-green-400' :
+                       'bg-gray-800/60 text-gray-600'
+            }`}>
+              {done ? <CheckCircle size={11} /> : (
+                <span className={`w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-bold ${
+                  active ? 'bg-white/20' : 'bg-gray-700'
+                }`}>{step}</span>
+              )}
+              {lbl}
+            </div>
+            {i < labels.length - 1 && (
+              <div className={`w-4 h-px mx-0.5 ${done ? 'bg-green-700' : 'bg-gray-800'}`} />
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
 }
 
-export default function Recommend() {
-  const navigate = useNavigate()
-  const [step,          setStep]          = useState(0)
-  const [loading,       setLoading]       = useState(false)
-  const [result,        setResult]        = useState<RecommendationResult | null>(null)
-  const [error,         setError]         = useState<string | null>(null)
-  const [expandedStock, setExpandedStock] = useState<string | null>(null)
-
-  const [form, setForm] = useState({
-    amount:            100000,
-    market:            'india',
-    horizon:           '',
-    goal:              '',
-    preferred_sectors: [] as string[],
-    n_stocks_min:      5,
-    n_stocks_max:      10,
-  })
-
-  const update = useCallback((k: string, v: any) => setForm(p => ({ ...p, [k]: v })), [])
-
-  const toggleSector = useCallback((s: string) => {
-    setForm(p => ({
-      ...p,
-      preferred_sectors: p.preferred_sectors.includes(s)
-        ? p.preferred_sectors.filter(x => x !== s)
-        : [...p.preferred_sectors, s],
-    }))
-  }, [])
-
-  const generate = async () => {
-    setLoading(true); setError(null)
-    try {
-      const res = await axios.post('http://localhost:8000/api/recommendation/generate', form, { timeout: 120000 })
-      setResult(res.data); setStep(6)
-    } catch (e: any) {
-      setError(e.response?.data?.detail || 'Failed to generate. Please try again.')
-    } finally {
-      setLoading(false) }
-  }
-
-  const canNext = () => {
-    if (step === 0) return form.amount >= 1000
-    if (step === 1) return !!form.market
-    if (step === 2) return !!form.horizon
-    if (step === 3) return !!form.goal
-    if (step === 5) return form.n_stocks_min <= form.n_stocks_max
-    return true
-  }
-
-  const next = () => {
-    if (step === 5) { generate(); return }
-    setStep(s => s + 1)
-  }
-
-  if (step === 6 && result) {
-    return <ResultScreen result={result} amount={form.amount} market={form.market}
-      onReset={() => { setStep(0); setResult(null) }}
-      onDashboard={() => navigate('/dashboard')}
-      expandedStock={expandedStock} setExpandedStock={setExpandedStock} />
-  }
-
-  const sectors = form.market === 'us' ? SECTORS_US : SECTORS_INDIA
-
+function WizardCard({ children }: { children: React.ReactNode }) {
   return (
-    <div className="min-h-screen bg-gray-950">
-      <div className="max-w-2xl mx-auto px-4 py-12">
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center gap-2 bg-blue-600/10 border border-blue-600/20 text-blue-400 text-sm px-4 py-1.5 rounded-full mb-4">
-            <Brain size={14} /> AI Investment Advisor
-          </div>
-          <h1 className="text-3xl font-bold text-white mb-2">Build Your Portfolio</h1>
-          <p className="text-gray-400 text-sm">
-            Powered by real market data · Scored on actual Sharpe, momentum & drawdown
-          </p>
-        </div>
-
-        <Progress step={step} />
-
-        <div className="card p-6 md:p-8">
-
-          {/* Step 0: Amount */}
-          {step === 0 && (
-            <div>
-              <h2 className="text-xl font-semibold text-white mb-2">💰 Investment Amount</h2>
-              <p className="text-gray-500 text-sm mb-6">How much would you like to invest?</p>
-              <div className="relative mb-3">
-                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 font-semibold">
-                  {form.market === 'us' ? '$' : '₹'}
-                </span>
-                <input type="number" value={form.amount}
-                  onChange={e => update('amount', Number(e.target.value))}
-                  className="w-full bg-gray-800 border border-gray-700 focus:border-blue-500 text-white pl-8 pr-4 py-4 rounded-xl text-xl font-semibold tabular-nums outline-none"
-                  min="1000" />
-              </div>
-              <p className="text-blue-400 font-medium mb-4">{fmtAmount(form.amount, form.market)}</p>
-              <div className="flex flex-wrap gap-2">
-                {[10000,50000,100000,500000,1000000].map(a => (
-                  <button key={a} onClick={() => update('amount', a)}
-                    className={`px-3 py-1.5 rounded-lg text-sm transition-colors ${
-                      form.amount === a ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
-                    }`}>{fmtAmount(a, form.market)}</button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Step 1: Market */}
-          {step === 1 && (
-            <div>
-              <h2 className="text-xl font-semibold text-white mb-2">🌍 Market Selection</h2>
-              <p className="text-gray-500 text-sm mb-6">
-                We'll scan all listed stocks in your chosen market
-              </p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {MARKETS.map(m => (
-                  <button key={m.value} onClick={() => update('market', m.value)}
-                    className={`border rounded-2xl p-5 text-left transition-all ${m.color} ${form.market === m.value ? 'ring-2 ring-blue-500' : ''}`}>
-                    <div className="text-3xl mb-2">{m.flag}</div>
-                    <p className="text-white font-semibold">{m.label}</p>
-                    <p className="text-gray-400 text-sm mt-0.5">{m.sub}</p>
-                    {form.market === m.value && (
-                      <div className="mt-2 flex items-center gap-1 text-blue-400 text-xs">
-                        <CheckCircle size={12} /> Selected
-                      </div>
-                    )}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Step 2: Horizon */}
-          {step === 2 && (
-            <div>
-              <h2 className="text-xl font-semibold text-white mb-2">⏱️ Investment Horizon</h2>
-              <p className="text-gray-500 text-sm mb-6">How long do you plan to stay invested?</p>
-              <div className="space-y-3">
-                {HORIZONS.map(h => (
-                  <button key={h.value} onClick={() => update('horizon', h.value)}
-                    className={`w-full border rounded-2xl p-4 text-left transition-all ${h.color} ${form.horizon === h.value ? 'ring-2 ring-blue-500' : ''}`}>
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <span className="text-xl mr-2">{h.icon}</span>
-                        <span className="text-white font-semibold">{h.label}</span>
-                        <span className="text-gray-400 text-sm ml-2">{h.sub}</span>
-                      </div>
-                      {form.horizon === h.value && <CheckCircle size={18} className="text-blue-400" />}
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Step 3: Goal */}
-          {step === 3 && (
-            <div>
-              <h2 className="text-xl font-semibold text-white mb-2">🎯 Investment Goal</h2>
-              <p className="text-gray-500 text-sm mb-6">This determines your risk profile and stock selection criteria</p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {GOALS.map(g => (
-                  <button key={g.value} onClick={() => update('goal', g.value)}
-                    className={`border rounded-xl p-4 text-left transition-all ${
-                      form.goal === g.value
-                        ? 'border-blue-600 bg-blue-950/30 ring-2 ring-blue-500'
-                        : 'border-gray-700/60 bg-gray-900/40 hover:border-gray-600'
-                    }`}>
-                    <div className="flex items-start gap-3">
-                      <span className="text-2xl shrink-0">{g.icon}</span>
-                      <div>
-                        <p className="text-white font-medium text-sm">{g.label}</p>
-                        <p className="text-gray-500 text-xs mt-0.5">{g.desc}</p>
-                      </div>
-                      {form.goal === g.value && (
-                        <CheckCircle size={14} className="text-blue-400 ml-auto shrink-0" />
-                      )}
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Step 4: Sectors */}
-          {step === 4 && (
-            <div>
-              <h2 className="text-xl font-semibold text-white mb-1">🏭 Sector Focus</h2>
-              <p className="text-gray-500 text-sm mb-1">Optional — skip to let AI scan all sectors</p>
-              <div className="bg-blue-950/20 border border-blue-800/40 rounded-xl px-4 py-2.5 mb-4">
-                <p className="text-blue-300 text-xs">
-                  ✓ <strong>Strict mode:</strong> selecting sectors will restrict recommendations
-                  to ONLY those sectors. Leave empty for full market scan.
-                </p>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {sectors.map(s => (
-                  <button key={s} onClick={() => toggleSector(s)}
-                    className={`px-4 py-2 rounded-full text-sm font-medium border transition-all ${
-                      form.preferred_sectors.includes(s)
-                        ? 'bg-blue-600 border-blue-500 text-white'
-                        : 'border-gray-700 bg-gray-800/60 text-gray-300 hover:border-gray-500'
-                    }`}>
-                    {s} {form.preferred_sectors.includes(s) && '✓'}
-                  </button>
-                ))}
-              </div>
-              {form.preferred_sectors.length > 0 ? (
-                <p className="text-blue-400 text-sm mt-3">
-                  Will scan <strong>{form.preferred_sectors.join(', ')}</strong> sector stocks only
-                </p>
-              ) : (
-                <p className="text-gray-600 text-sm mt-3">
-                  No sectors selected — will scan entire {form.market === 'india' ? 'NSE' : 'S&P 500'} universe
-                </p>
-              )}
-            </div>
-          )}
-
-          {/* Step 5: Stock Count */}
-          {step === 5 && (
-            <div>
-              <h2 className="text-xl font-semibold text-white mb-2">📊 Number of Stocks</h2>
-              <p className="text-gray-500 text-sm mb-6">
-                Set min and max — AI will pick the optimal number within your range
-              </p>
-
-              <div className="grid grid-cols-2 gap-6 mb-6">
-                {/* Min */}
-                <div className="card p-4">
-                  <p className="text-gray-400 text-xs uppercase tracking-wide mb-3">Minimum</p>
-                  <div className="flex items-center gap-3">
-                    <button onClick={() => update('n_stocks_min', Math.max(3, form.n_stocks_min - 1))}
-                      className="w-8 h-8 rounded-lg bg-gray-700 hover:bg-gray-600 flex items-center justify-center transition-colors">
-                      <Minus size={14} className="text-gray-300" />
-                    </button>
-                    <span className="text-3xl font-bold text-white w-10 text-center tabular-nums">
-                      {form.n_stocks_min}
-                    </span>
-                    <button onClick={() => update('n_stocks_min', Math.min(form.n_stocks_max, form.n_stocks_min + 1))}
-                      className="w-8 h-8 rounded-lg bg-gray-700 hover:bg-gray-600 flex items-center justify-center transition-colors">
-                      <Plus size={14} className="text-gray-300" />
-                    </button>
-                  </div>
-                  <p className="text-gray-600 text-xs mt-2">min 3</p>
-                </div>
-
-                {/* Max */}
-                <div className="card p-4">
-                  <p className="text-gray-400 text-xs uppercase tracking-wide mb-3">Maximum</p>
-                  <div className="flex items-center gap-3">
-                    <button onClick={() => update('n_stocks_max', Math.max(form.n_stocks_min, form.n_stocks_max - 1))}
-                      className="w-8 h-8 rounded-lg bg-gray-700 hover:bg-gray-600 flex items-center justify-center transition-colors">
-                      <Minus size={14} className="text-gray-300" />
-                    </button>
-                    <span className="text-3xl font-bold text-white w-10 text-center tabular-nums">
-                      {form.n_stocks_max}
-                    </span>
-                    <button onClick={() => update('n_stocks_max', Math.min(20, form.n_stocks_max + 1))}
-                      className="w-8 h-8 rounded-lg bg-gray-700 hover:bg-gray-600 flex items-center justify-center transition-colors">
-                      <Plus size={14} className="text-gray-300" />
-                    </button>
-                  </div>
-                  <p className="text-gray-600 text-xs mt-2">max 20</p>
-                </div>
-              </div>
-
-              {/* Guidance */}
-              <div className="space-y-2 text-sm">
-                {[
-                  { range: '3–5',  label: 'Concentrated',  desc: 'High conviction, higher risk per stock' },
-                  { range: '6–10', label: 'Balanced',      desc: 'Good diversification, manageable tracking' },
-                  { range: '11–15',label: 'Diversified',   desc: 'Lower single-stock risk' },
-                  { range: '16–20',label: 'Broad basket',  desc: 'Near-index exposure' },
-                ].map(g => {
-                  const [lo, hi] = g.range.split('–').map(Number)
-                  const active   = form.n_stocks_min >= lo && form.n_stocks_max <= hi + 1
-                  return (
-                    <div key={g.range} className={`flex items-center gap-3 px-3 py-2 rounded-lg ${active ? 'bg-blue-950/30 border border-blue-800/40' : 'bg-gray-800/30'}`}>
-                      <span className={`text-xs font-mono w-12 ${active ? 'text-blue-400' : 'text-gray-600'}`}>{g.range}</span>
-                      <span className={`text-xs font-medium ${active ? 'text-white' : 'text-gray-500'}`}>{g.label}</span>
-                      <span className={`text-xs ${active ? 'text-gray-400' : 'text-gray-700'}`}>{g.desc}</span>
-                    </div>
-                  )
-                })}
-              </div>
-
-              {/* Full summary */}
-              <div className="mt-6 bg-gray-800/40 border border-gray-700/60 rounded-xl p-4">
-                <p className="text-gray-400 text-xs font-medium uppercase tracking-wide mb-3">Final Summary</p>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
-                  {[
-                    { k: 'Amount',   v: fmtAmount(form.amount, form.market) },
-                    { k: 'Market',   v: form.market === 'india' ? '🇮🇳 India' : '🇺🇸 US' },
-                    { k: 'Horizon',  v: form.horizon },
-                    { k: 'Goal',     v: form.goal.replace(/_/g, ' ') },
-                    { k: 'Sectors',  v: form.preferred_sectors.length ? form.preferred_sectors.join(', ') : 'All sectors' },
-                    { k: 'Stocks',   v: `${form.n_stocks_min}–${form.n_stocks_max}` },
-                  ].map(r => (
-                    <div key={r.k}>
-                      <p className="text-gray-600 text-xs capitalize">{r.k}</p>
-                      <p className="text-white font-medium text-xs capitalize truncate">{r.v}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="mt-4 bg-yellow-950/20 border border-yellow-800/40 rounded-xl px-4 py-3">
-                <p className="text-yellow-300 text-xs">
-                  ⏱️ Generation takes 30–90 seconds — we scan real market data and score
-                  each stock using Sharpe ratio, momentum, and drawdown analysis.
-                </p>
-              </div>
-            </div>
-          )}
-
-          {error && (
-            <div className="mt-4 flex items-start gap-2 text-red-400 text-sm bg-red-950/30 border border-red-800 rounded-xl px-4 py-3">
-              <AlertTriangle size={15} className="shrink-0 mt-0.5" /> {error}
-            </div>
-          )}
-
-          <div className="flex items-center justify-between mt-8">
-            <button onClick={() => setStep(s => Math.max(0, s-1))} disabled={step === 0}
-              className="flex items-center gap-2 text-gray-400 hover:text-white transition-colors disabled:opacity-30">
-              <ArrowLeft size={16} /> Back
-            </button>
-            <button onClick={next} disabled={!canNext() || loading}
-              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white px-6 py-3 rounded-xl font-semibold transition-all shadow-lg shadow-blue-600/20">
-              {loading ? (
-                <>
-                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  Scanning market data...
-                </>
-              ) : step === 5 ? (
-                <><Brain size={16} /> Generate Portfolio</>
-              ) : (
-                <>Continue <ArrowRight size={16} /></>
-              )}
-            </button>
-          </div>
-        </div>
+    <div className="max-w-xl mx-auto">
+      <div className="card p-6 shadow-2xl shadow-black/40">
+        {children}
       </div>
     </div>
   )
 }
 
-/* ── Result Screen ── */
-const ResultScreen = memo(function ResultScreen({
-  result, amount, market, onReset, onDashboard, expandedStock, setExpandedStock,
+function NavButtons({
+  onBack, onNext, nextLabel = 'Continue →',
+  nextDisabled = false, loading = false,
 }: {
-  result: RecommendationResult; amount: number; market: string
-  onReset: () => void; onDashboard: () => void
-  expandedStock: string | null; setExpandedStock: (s: string | null) => void
+  onBack?: () => void; onNext: () => void
+  nextLabel?: string; nextDisabled?: boolean; loading?: boolean
 }) {
-  const prefix  = market === 'us' ? '$' : '₹'
-  const profile = result.profile
-  const ps      = result.portfolio_score
-  const scoreColor = ps >= 70 ? 'text-green-400' : ps >= 55 ? 'text-yellow-400' : 'text-orange-400'
+  return (
+    <div className="flex items-center justify-between mt-6">
+      {onBack ? (
+        <button onClick={onBack}
+          className="flex items-center gap-1.5 text-gray-500 hover:text-white text-sm transition-colors">
+          <ChevronLeft size={15} /> Back
+        </button>
+      ) : <div />}
+      <button
+        onClick={onNext}
+        disabled={nextDisabled || loading}
+        className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white px-6 py-2.5 rounded-xl font-semibold text-sm transition-all shadow-lg shadow-blue-600/20"
+      >
+        {loading ? (
+          <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+          Building portfolio...</>
+        ) : nextLabel}
+      </button>
+    </div>
+  )
+}
+
+// ── Step 1: Capital ───────────────────────────────────────────
+
+const StepCapital = memo(function StepCapital({
+  amount, setAmount, onNext,
+}: { amount: string; setAmount: (v: string) => void; onNext: () => void }) {
+  const num     = parseFloat(amount) || 0
+  const isValid = num >= 5000
+  return (
+    <WizardCard>
+      <div className="flex items-center gap-2 mb-4">
+        <div className="w-8 h-8 bg-yellow-600/20 rounded-xl flex items-center justify-center">
+          <DollarSign size={17} className="text-yellow-400" />
+        </div>
+        <div>
+          <h2 className="text-white font-bold">Investment Amount</h2>
+          <p className="text-gray-500 text-xs">How much would you like to invest?</p>
+        </div>
+      </div>
+
+      <div className="relative mb-3">
+        <div className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 font-semibold">₹</div>
+        <input
+          type="number"
+          value={amount}
+          onChange={e => setAmount(e.target.value)}
+          className="w-full bg-gray-800/60 border border-gray-700 focus:border-blue-500 text-white pl-9 pr-4 py-3.5 rounded-xl text-xl font-bold outline-none transition-colors tabular-nums"
+          placeholder="100000"
+          min="5000"
+        />
+      </div>
+
+      {num > 0 && (
+        <p className="text-blue-400 text-sm font-medium mb-4 tabular-nums">{fmtInr(num)}</p>
+      )}
+      {num > 0 && num < 5000 && (
+        <p className="text-red-400 text-xs mb-3">Minimum investment is Rs.5,000</p>
+      )}
+
+      <div className="flex flex-wrap gap-2 mb-2">
+        {PRESETS.map(p => (
+          <button
+            key={p}
+            onClick={() => setAmount(String(p))}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+              num === p
+                ? 'bg-blue-600 text-white'
+                : 'bg-gray-800 text-gray-400 hover:text-white hover:bg-gray-700'
+            }`}
+          >
+            {fmtInr(p)}
+          </button>
+        ))}
+      </div>
+
+      <NavButtons onNext={onNext} nextDisabled={!isValid} />
+    </WizardCard>
+  )
+})
+
+// ── Step 2: Market ────────────────────────────────────────────
+
+const StepMarket = memo(function StepMarket({
+  market, setMarket, onBack, onNext,
+}: { market: string; setMarket: (v: string) => void; onBack: () => void; onNext: () => void }) {
+  return (
+    <WizardCard>
+      <div className="flex items-center gap-2 mb-5">
+        <div className="w-8 h-8 bg-blue-600/20 rounded-xl flex items-center justify-center">
+          <BarChart3 size={17} className="text-blue-400" />
+        </div>
+        <div>
+          <h2 className="text-white font-bold">Which market?</h2>
+          <p className="text-gray-500 text-xs">Select where to invest</p>
+        </div>
+      </div>
+
+      <div className="space-y-2 mb-2">
+        {MARKETS.map(m => (
+          <button
+            key={m.value}
+            onClick={() => setMarket(m.value)}
+            className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl border transition-all text-left ${
+              market === m.value
+                ? 'border-blue-600 bg-blue-950/20'
+                : 'border-gray-700/60 hover:border-gray-600 bg-gray-800/30'
+            }`}
+          >
+            <span className="text-2xl">{m.flag}</span>
+            <div>
+              <p className="text-white font-medium text-sm">{m.label}</p>
+              {m.value === 'india' && <p className="text-gray-500 text-xs">2300+ NSE stocks • INR</p>}
+              {m.value === 'us'    && <p className="text-gray-500 text-xs">S&P 500 universe • USD</p>}
+              {m.value === 'both'  && <p className="text-gray-500 text-xs">Diversified global exposure</p>}
+            </div>
+            {market === m.value && <CheckCircle size={16} className="text-blue-400 ml-auto" />}
+          </button>
+        ))}
+      </div>
+
+      <NavButtons onBack={onBack} onNext={onNext} nextDisabled={!market} />
+    </WizardCard>
+  )
+})
+
+// ── Step 3: Horizon ───────────────────────────────────────────
+
+const StepHorizon = memo(function StepHorizon({
+  horizon, setHorizon, onBack, onNext,
+}: { horizon: string; setHorizon: (v: string) => void; onBack: () => void; onNext: () => void }) {
+  return (
+    <WizardCard>
+      <div className="flex items-center gap-2 mb-5">
+        <div className="w-8 h-8 bg-purple-600/20 rounded-xl flex items-center justify-center">
+          <Clock size={17} className="text-purple-400" />
+        </div>
+        <div>
+          <h2 className="text-white font-bold">Investment Horizon</h2>
+          <p className="text-gray-500 text-xs">How long will you stay invested?</p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-3 gap-3 mb-2">
+        {HORIZONS.map(h => (
+          <button
+            key={h.value}
+            onClick={() => setHorizon(h.value)}
+            className={`flex flex-col items-center gap-2 py-4 px-2 rounded-xl border transition-all ${
+              horizon === h.value
+                ? 'border-purple-600 bg-purple-950/20'
+                : 'border-gray-700/60 hover:border-gray-600 bg-gray-800/30'
+            }`}
+          >
+            <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+              horizon === h.value ? 'bg-purple-600/30 text-purple-400' : 'bg-gray-700 text-gray-400'
+            }`}>
+              {h.icon}
+            </div>
+            <div className="text-center">
+              <p className={`font-semibold text-sm ${horizon === h.value ? 'text-white' : 'text-gray-400'}`}>
+                {h.label}
+              </p>
+              <p className="text-gray-600 text-xs">{h.desc}</p>
+            </div>
+          </button>
+        ))}
+      </div>
+
+      <NavButtons onBack={onBack} onNext={onNext} nextDisabled={!horizon} />
+    </WizardCard>
+  )
+})
+
+// ── Step 4: Goal ──────────────────────────────────────────────
+
+const StepGoal = memo(function StepGoal({
+  goal, setGoal, onBack, onNext,
+}: { goal: string; setGoal: (v: string) => void; onBack: () => void; onNext: () => void }) {
+  return (
+    <WizardCard>
+      <div className="flex items-center gap-2 mb-5">
+        <div className="w-8 h-8 bg-green-600/20 rounded-xl flex items-center justify-center">
+          <Target size={17} className="text-green-400" />
+        </div>
+        <div>
+          <h2 className="text-white font-bold">Investment Goal</h2>
+          <p className="text-gray-500 text-xs">What are you investing for?</p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 mb-2">
+        {GOALS.map(g => (
+          <button
+            key={g.value}
+            onClick={() => setGoal(g.value)}
+            className={`flex items-center gap-2.5 px-3.5 py-3 rounded-xl border transition-all text-left ${
+              goal === g.value
+                ? 'border-green-600 bg-green-950/20'
+                : 'border-gray-700/60 hover:border-gray-600 bg-gray-800/30'
+            }`}
+          >
+            <span className="text-xl">{g.icon}</span>
+            <span className={`text-sm font-medium ${goal === g.value ? 'text-white' : 'text-gray-400'}`}>
+              {g.label}
+            </span>
+          </button>
+        ))}
+      </div>
+
+      <NavButtons onBack={onBack} onNext={onNext} nextDisabled={!goal} />
+    </WizardCard>
+  )
+})
+
+// ── Step 5: Sectors ───────────────────────────────────────────
+
+const StepSectors = memo(function StepSectors({
+  selected, setSelected, onBack, onNext,
+}: {
+  selected: string[]; setSelected: (v: string[]) => void
+  onBack: () => void; onNext: () => void
+}) {
+  const toggle = (s: string) =>
+    setSelected(
+      selected.includes(s) ? selected.filter(x => x !== s) : [...selected, s]
+    )
 
   return (
-    <div className="min-h-screen bg-gray-950">
-      <div className="max-w-4xl mx-auto px-4 py-10">
+    <WizardCard>
+      <div className="flex items-center gap-2 mb-5">
+        <div className="w-8 h-8 bg-orange-600/20 rounded-xl flex items-center justify-center">
+          <PieChart size={17} className="text-orange-400" />
+        </div>
+        <div>
+          <h2 className="text-white font-bold">Preferred Sectors</h2>
+          <p className="text-gray-500 text-xs">Pick 2–5 sectors (optional — skip to use defaults)</p>
+        </div>
+      </div>
 
-        <div className="flex items-start justify-between mb-6">
+      <div className="flex flex-wrap gap-2 mb-4">
+        {SECTORS.map(s => (
+          <button
+            key={s}
+            onClick={() => toggle(s)}
+            className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all border ${
+              selected.includes(s)
+                ? 'bg-orange-600/20 border-orange-600/60 text-orange-300'
+                : 'bg-gray-800/50 border-gray-700/50 text-gray-400 hover:text-white hover:border-gray-500'
+            }`}
+          >
+            {s}
+          </button>
+        ))}
+      </div>
+
+      {selected.length > 0 ? (
+        <div className="flex items-center gap-2 text-xs text-green-400 mb-3">
+          <CheckCircle size={12} />
+          {selected.length} sector{selected.length > 1 ? 's' : ''} selected: {selected.join(', ')}
+        </div>
+      ) : (
+        <p className="text-gray-600 text-xs mb-3">
+          No sectors selected — AI will use smart defaults for your goal.
+        </p>
+      )}
+
+      <NavButtons
+        onBack={onBack}
+        onNext={onNext}
+        nextLabel={selected.length === 0 ? 'Skip & Continue →' : 'Continue →'}
+      />
+    </WizardCard>
+  )
+})
+
+// ── Step 6: Stock Count ───────────────────────────────────────
+
+const StepStockCount = memo(function StepStockCount({
+  count, setCount, onBack, onGenerate, loading,
+}: {
+  count: number; setCount: (v: number) => void
+  onBack: () => void; onGenerate: () => void; loading: boolean
+}) {
+  return (
+    <WizardCard>
+      <div className="flex items-center gap-2 mb-5">
+        <div className="w-8 h-8 bg-blue-600/20 rounded-xl flex items-center justify-center">
+          <Briefcase size={17} className="text-blue-400" />
+        </div>
+        <div>
+          <h2 className="text-white font-bold">Number of Stocks</h2>
+          <p className="text-gray-500 text-xs">How many stocks in your portfolio?</p>
+        </div>
+      </div>
+
+      <div className="flex gap-2 flex-wrap mb-5">
+        {STOCK_COUNTS.map(n => (
+          <button
+            key={n}
+            onClick={() => setCount(n)}
+            className={`flex-1 py-3 rounded-xl border font-bold text-lg transition-all ${
+              count === n
+                ? 'bg-blue-600 border-blue-600 text-white shadow-lg shadow-blue-600/20'
+                : 'bg-gray-800/50 border-gray-700/50 text-gray-400 hover:text-white hover:border-gray-500'
+            }`}
+          >
+            {n}
+          </button>
+        ))}
+      </div>
+
+      <div className="bg-gray-800/40 rounded-xl p-3 mb-5">
+        <p className="text-gray-400 text-xs leading-relaxed">
+          <span className="text-white font-semibold">India rule:</span> Only whole number shares.
+          We allocate your capital optimally across {count} stocks and show you
+          exactly how many shares to buy at today's prices.
+          Uninvested cash is shown separately.
+        </p>
+      </div>
+
+      <NavButtons
+        onBack={onBack}
+        onNext={onGenerate}
+        nextLabel="Build My Portfolio →"
+        loading={loading}
+      />
+    </WizardCard>
+  )
+})
+
+// ── Loading screen ────────────────────────────────────────────
+
+// fix: removed unused `amount` prop
+function LoadingScreen() {
+  return (
+    <div className="max-w-xl mx-auto text-center py-16">
+      <div className="w-16 h-16 bg-blue-600/20 rounded-2xl flex items-center justify-center mx-auto mb-6">
+        <Sparkles size={28} className="text-blue-400 animate-pulse" />
+      </div>
+      <h2 className="text-white text-xl font-bold mb-2">Building Your Portfolio</h2>
+      <p className="text-gray-500 text-sm mb-8">
+        Scoring real market data · Enforcing whole-share rules · Optimising allocation
+      </p>
+      <div className="space-y-2 text-left max-w-xs mx-auto">
+        {[
+          'Fetching NSE universe (2300+ stocks)...',
+          'Scoring by Sharpe, momentum, drawdown...',
+          'Fetching live share prices...',
+          'Calculating whole-share allocations...',
+          'Optimising for your budget...',
+        ].map((step, i) => (
+          <div key={i} className="flex items-center gap-2 text-xs text-gray-500">
+            <div className="w-1.5 h-1.5 rounded-full bg-blue-600 animate-pulse" />
+            {step}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ── Result screen ─────────────────────────────────────────────
+
+function ResultScreen({
+  result, amount, onReset,
+}: { result: RecommendationResult; amount: number; onReset: () => void }) {
+  const [expandedStock, setExpandedStock] = useState<string | null>(null)
+  const [showBreakdown, setShowBreakdown] = useState(false)
+
+  const isIndia = (result.stocks[0]?.symbol ?? '').endsWith('.NS') ||
+                  (result.stocks[0]?.symbol ?? '').endsWith('.BO')
+  const prefix  = isIndia ? 'Rs.' : '$'
+  const locale  = isIndia ? 'en-IN' : 'en-US'
+
+  const totalInvested  = result.total_invested
+    ?? result.stocks.reduce((a, s) => a + (s.total_cost ?? s.allocation_amount), 0)
+  const uninvestedCash = result.uninvested_cash ?? (amount - totalInvested)
+  const investedPct    = amount > 0 ? Math.round((totalInvested / amount) * 100) : 0
+
+  // fix: use n_sectors from result if available, else fall back to sector_allocation length
+  const nSectors = result.n_sectors ?? result.sector_allocation.length
+
+  return (
+    <div className="max-w-3xl mx-auto space-y-6">
+
+      {/* Header */}
+      <div className="flex items-start justify-between">
+        <div>
+          <div className="flex items-center gap-2 mb-1">
+            <Sparkles size={16} className="text-blue-400" />
+            <span className="text-blue-400 text-sm font-medium">AI Portfolio Ready</span>
+          </div>
+          <h2 className="text-white text-2xl font-bold">Your Portfolio</h2>
+          <p className="text-gray-500 text-sm mt-0.5">
+            {result.stocks.length} stocks · {nSectors} sectors ·{' '}
+            <span className={PROFILE_COLOR[result.profile.category] ?? 'text-gray-400'}>
+              {result.profile.category} profile
+            </span>
+          </p>
+        </div>
+        <button
+          onClick={onReset}
+          className="flex items-center gap-1.5 text-gray-500 hover:text-white text-sm border border-gray-700/60 px-3 py-1.5 rounded-xl transition-colors"
+        >
+          <RefreshCw size={13} /> Rebuild
+        </button>
+      </div>
+
+      {/* Capital summary */}
+      <div className="card p-5">
+        <div className="grid grid-cols-3 gap-4">
           <div>
-            <h1 className="text-2xl md:text-3xl font-bold text-white mb-1">Your AI Portfolio</h1>
-            <p className="text-gray-500 text-sm">
-              {result.stocks.length} stocks · {prefix}{amount.toLocaleString('en-IN')}
-              {result.sectors_used?.length > 0 && (
-                <span className="ml-2 text-gray-600">· {result.sectors_used.join(', ')}</span>
-              )}
+            <p className="text-gray-500 text-xs mb-1">Requested</p>
+            <p className="text-white font-bold text-lg tabular-nums">
+              {prefix}{amount.toLocaleString(locale)}
             </p>
-            <p className="text-xs text-blue-400/70 mt-0.5">{result.data_note}</p>
           </div>
-          <div className="flex gap-2 shrink-0">
-            <button onClick={onReset} className="text-sm text-gray-400 hover:text-white border border-gray-700 px-3 py-2 rounded-xl transition-colors">← Rebuild</button>
-            <button onClick={onDashboard} className="text-sm bg-blue-600 hover:bg-blue-500 text-white px-3 py-2 rounded-xl transition-colors">Dashboard</button>
-          </div>
-        </div>
-
-        {/* Score cards */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
-          <div className="card p-4 text-center">
-            <p className="text-gray-500 text-xs uppercase tracking-wide mb-1">Portfolio Score</p>
-            <p className={`text-3xl font-black ${scoreColor}`}>{ps}</p>
-            <p className="text-gray-600 text-xs">/100</p>
-          </div>
-          <div className="card p-4 text-center">
-            <p className="text-gray-500 text-xs uppercase tracking-wide mb-1">Sharpe Ratio</p>
-            <p className={`text-3xl font-black tabular-nums ${result.weighted_sharpe > 0.8 ? 'text-green-400' : result.weighted_sharpe > 0.3 ? 'text-yellow-400' : 'text-red-400'}`}>
-              {result.weighted_sharpe?.toFixed(2) ?? '—'}
+          <div>
+            <p className="text-gray-500 text-xs mb-1">Investing in stocks</p>
+            <p className="text-green-400 font-bold text-lg tabular-nums">
+              {prefix}{Math.round(totalInvested).toLocaleString(locale)}
             </p>
-            <p className="text-gray-600 text-xs">weighted avg</p>
-          </div>
-          <div className="card p-4 text-center">
-            <p className="text-gray-500 text-xs uppercase tracking-wide mb-1">1Y Avg Return</p>
-            <p className={`text-3xl font-black tabular-nums ${(result.expected_return ?? 0) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-              {(result.expected_return ?? 0) >= 0 ? '+' : ''}{result.expected_return?.toFixed(1) ?? '0'}%
-            </p>
-            <p className="text-gray-600 text-xs">historical</p>
-          </div>
-          <div className="card p-4 text-center">
-            <p className="text-gray-500 text-xs uppercase tracking-wide mb-1">Est. Volatility</p>
-            <p className={`text-3xl font-black tabular-nums ${(result.expected_volatility ?? 0) > 30 ? 'text-red-400' : (result.expected_volatility ?? 0) > 20 ? 'text-yellow-400' : 'text-green-400'}`}>
-              {result.expected_volatility?.toFixed(1) ?? '—'}%
-            </p>
-            <p className="text-gray-600 text-xs">annual</p>
-          </div>
-        </div>
-
-        {/* Score breakdown */}
-        {result.score_breakdown && Object.keys(result.score_breakdown).length > 0 && (
-          <div className="card p-5 mb-5">
-            <p className="text-white font-semibold text-sm mb-3">Score Breakdown (how {ps}/100 was computed)</p>
-            <div className="space-y-2">
-              {Object.entries(result.score_breakdown).map(([k, v]) => (
-                <div key={k} className="flex items-center gap-3">
-                  <span className="text-gray-400 text-xs w-40 shrink-0 capitalize">
-                    {k.replace(/_/g, ' ')}
-                  </span>
-                  <div className="flex-1 bg-gray-800 rounded-full h-2">
-                    <div className="h-2 rounded-full bg-blue-500" style={{ width: `${(v / 40) * 100}%` }} />
-                  </div>
-                  <span className="text-gray-400 text-xs tabular-nums w-14 text-right">
-                    {v.toFixed(1)} pts
-                  </span>
-                </div>
-              ))}
+            <div className="mt-1.5 bg-gray-800 rounded-full h-1 overflow-hidden w-full">
+              <div
+                className="h-full bg-green-500 rounded-full transition-all"
+                style={{ width: `${investedPct}%` }}
+              />
             </div>
           </div>
-        )}
-
-        {/* Profile */}
-        <div className={`border rounded-2xl p-5 mb-5 ${PROFILE_COLORS[profile.category] ?? 'text-gray-400 bg-gray-900 border-gray-700'}`}>
-          <div className="flex items-center gap-2 mb-2">
-            <Shield size={15} />
-            <span className="font-semibold text-sm">
-              Risk Profile: {profile.category.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
-              <span className="ml-2 opacity-60 text-xs font-normal">
-                ({Math.round(profile.confidence * 100)}% confidence)
-              </span>
-            </span>
+          <div>
+            <p className="text-gray-500 text-xs mb-1">Uninvested cash</p>
+            <p className={`font-bold text-lg tabular-nums ${uninvestedCash > 0 ? 'text-yellow-400' : 'text-gray-500'}`}>
+              {prefix}{Math.round(Math.max(0, uninvestedCash)).toLocaleString(locale)}
+            </p>
+            {uninvestedCash > 0 && (
+              <p className="text-gray-600 text-xs mt-0.5">Add to next SIP</p>
+            )}
           </div>
-          <p className="text-sm opacity-80 leading-relaxed">{profile.explanation}</p>
         </div>
 
-        {/* AI Commentary */}
-        <div className="card p-5 mb-5">
-          <div className="flex items-center gap-2 mb-3">
-            <Brain size={15} className="text-blue-400" />
-            <h3 className="text-white font-semibold text-sm">AI Commentary</h3>
-            <span className="ml-auto text-xs text-gray-600">Based on real 1-year market data</span>
+        {uninvestedCash > 1 && (
+          <div className="mt-4 bg-yellow-950/20 border border-yellow-800/30 rounded-xl px-3 py-2.5 flex items-start gap-2">
+            <Info size={13} className="text-yellow-400 shrink-0 mt-0.5" />
+            <p className="text-yellow-300/80 text-xs leading-relaxed">
+              <strong>Why is there uninvested cash?</strong> In India, shares can only be purchased
+              in whole numbers. After buying whole shares for each stock,{' '}
+              {prefix}{Math.round(uninvestedCash).toLocaleString(locale)} remains.
+              You can add this to your next SIP or invest in an additional stock.
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* Score cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {[
+          {
+            label: 'Portfolio Score',
+            value: `${result.portfolio_score}/100`,
+            color: result.portfolio_score >= 70 ? 'text-green-400'
+                 : result.portfolio_score >= 50 ? 'text-yellow-400' : 'text-red-400',
+            sub: result.portfolio_score >= 70 ? 'Strong'
+               : result.portfolio_score >= 50 ? 'Moderate' : 'Weak',
+          },
+          {
+            label: 'Diversification',
+            value: `${result.diversification_score}/100`,
+            color: result.diversification_score >= 60 ? 'text-green-400' : 'text-yellow-400',
+            sub:   `${result.sector_allocation.length} sectors`,
+          },
+          {
+            label: 'Weighted Sharpe',
+            value: result.weighted_sharpe.toFixed(2),
+            color: result.weighted_sharpe > 1 ? 'text-green-400'
+                 : result.weighted_sharpe > 0 ? 'text-yellow-400' : 'text-red-400',
+            sub:   result.weighted_sharpe > 1 ? 'Excellent'
+                 : result.weighted_sharpe > 0 ? 'Good' : 'Below avg',
+          },
+          {
+            label: 'Expected Return',
+            value: `${result.expected_return >= 0 ? '+' : ''}${result.expected_return.toFixed(1)}%`,
+            color: result.expected_return >= 0 ? 'text-green-400' : 'text-red-400',
+            sub:   '1Y historical avg',
+          },
+        ].map(card => (
+          <div key={card.label} className="card p-4">
+            <p className="text-gray-500 text-xs mb-1">{card.label}</p>
+            <p className={`text-xl font-bold tabular-nums ${card.color}`}>{card.value}</p>
+            <p className="text-gray-600 text-xs mt-0.5">{card.sub}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* AI Commentary */}
+      {result.ai_commentary && (
+        <div className="card p-5 border-l-4 border-blue-600">
+          <div className="flex items-center gap-2 mb-2">
+            <Sparkles size={14} className="text-blue-400" />
+            <span className="text-blue-400 text-xs font-semibold uppercase tracking-wide">AI Analysis</span>
           </div>
           <p className="text-gray-300 text-sm leading-relaxed">{result.ai_commentary}</p>
         </div>
+      )}
 
-        {/* Strengths + Warnings */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5">
-          {result.strengths.length > 0 && (
-            <div className="card p-4 border-green-800/40 bg-green-950/10">
-              <h3 className="text-green-400 font-semibold text-sm mb-3 flex items-center gap-2">
-                <CheckCircle size={13} /> Verified Strengths
-              </h3>
-              {result.strengths.map((s, i) => (
-                <p key={i} className="text-gray-300 text-xs flex gap-2 mb-1.5">
-                  <span className="text-green-500 shrink-0">✓</span> {s}
-                </p>
-              ))}
-            </div>
-          )}
-          {result.risk_warnings.length > 0 && (
-            <div className="card p-4 border-yellow-800/40 bg-yellow-950/10">
-              <h3 className="text-yellow-400 font-semibold text-sm mb-3 flex items-center gap-2">
-                <AlertTriangle size={13} /> Risk Factors
-              </h3>
-              {result.risk_warnings.map((w, i) => (
-                <p key={i} className="text-gray-300 text-xs flex gap-2 mb-1.5">
-                  <span className="text-yellow-500 shrink-0">⚠</span> {w}
-                </p>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Sector allocation */}
-        <div className="card p-5 mb-5">
-          <h3 className="text-white font-semibold text-sm mb-4">Sector Allocation</h3>
-          <div className="space-y-2.5">
-            {result.sector_allocation.map(s => (
-              <div key={s.sector} className="flex items-center gap-3">
-                <span className="text-gray-400 text-xs w-28 shrink-0">{s.sector}</span>
-                <div className="flex-1 bg-gray-800 rounded-full h-2">
-                  <div className="h-2 rounded-full bg-blue-500" style={{ width: `${s.weight_pct}%` }} />
-                </div>
-                <span className="text-gray-400 text-xs tabular-nums w-10 text-right">
-                  {s.weight_pct.toFixed(1)}%
-                </span>
+      {/* Strengths + Risk Warnings */}
+      {(result.strengths?.length > 0 || result.risk_warnings?.length > 0) && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {result.strengths?.length > 0 && (
+            <div className="card p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <CheckCircle size={14} className="text-green-400" />
+                <span className="text-green-400 text-xs font-semibold">Strengths</span>
               </div>
-            ))}
-          </div>
+              <ul className="space-y-2">
+                {result.strengths.slice(0, 3).map((s, i) => (
+                  <li key={i} className="text-gray-400 text-xs leading-relaxed flex items-start gap-2">
+                    <span className="text-green-600 mt-0.5 shrink-0">›</span> {s}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {result.risk_warnings?.length > 0 && (
+            <div className="card p-4 border-yellow-800/30">
+              <div className="flex items-center gap-2 mb-3">
+                <AlertTriangle size={14} className="text-yellow-400" />
+                <span className="text-yellow-400 text-xs font-semibold">Watch out</span>
+              </div>
+              <ul className="space-y-2">
+                {result.risk_warnings.slice(0, 3).map((w, i) => (
+                  <li key={i} className="text-gray-400 text-xs leading-relaxed flex items-start gap-2">
+                    <span className="text-yellow-600 mt-0.5 shrink-0">›</span> {w}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
+      )}
 
-        {/* Stocks */}
-        <div>
-          <h3 className="text-white font-semibold text-lg mb-4">
-            Recommended Stocks ({result.stocks.length})
-            <span className="ml-2 text-xs font-normal text-gray-500">
-              sorted by composite score
-            </span>
-          </h3>
-          <div className="space-y-2">
-            {result.stocks.map((stock, i) => (
+      {/* fix: safe optional chaining on warnings */}
+      {(result.warnings?.length ?? 0) > 0 && (
+        <div className="bg-orange-950/20 border border-orange-800/40 rounded-xl p-4">
+          <div className="flex items-center gap-2 mb-2">
+            <AlertTriangle size={13} className="text-orange-400" />
+            <span className="text-orange-400 text-xs font-semibold">Stocks removed (unaffordable)</span>
+          </div>
+          {result.warnings?.map((w, i) => (
+            <p key={i} className="text-gray-400 text-xs">{w}</p>
+          ))}
+        </div>
+      )}
+
+      {/* Stock list */}
+      <div>
+        <h3 className="text-white font-semibold mb-3 flex items-center gap-2">
+          Stock Allocation
+          <span className="text-gray-600 text-sm font-normal">
+            — {result.stocks.length} stocks, whole shares only
+          </span>
+        </h3>
+
+        <div className="space-y-2">
+          {result.stocks.map((stock, i) => {
+            const isOpen = expandedStock === stock.symbol
+            const cost   = stock.total_cost ?? stock.allocation_amount
+
+            return (
               <div key={stock.symbol} className="card overflow-hidden">
                 <button
-                  onClick={() => setExpandedStock(expandedStock === stock.symbol ? null : stock.symbol)}
+                  onClick={() => setExpandedStock(isOpen ? null : stock.symbol)}
                   className="w-full flex items-center gap-3 p-4 hover:bg-white/[0.02] transition-colors text-left"
                 >
-                  <div className="w-7 h-7 rounded-full bg-blue-600/20 flex items-center justify-center text-blue-400 text-xs font-bold shrink-0">
+                  <div className="w-6 h-6 rounded-full bg-gray-800 flex items-center justify-center text-gray-500 text-xs font-bold shrink-0">
                     {i + 1}
                   </div>
+
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-white font-semibold text-sm">{stock.symbol}</span>
-                      <span className="text-gray-500 text-xs truncate max-w-32">{stock.name}</span>
-                      <span className={`text-xs px-2 py-0.5 rounded-full shrink-0 ${ROLE_BADGE[stock.role] ?? 'bg-gray-800 text-gray-400'}`}>
+                      <span className="text-white font-bold text-sm">{stock.symbol}</span>
+                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold capitalize shrink-0 ${ROLE_BADGE[stock.role] ?? 'bg-gray-800 text-gray-400'}`}>
                         {stock.role}
                       </span>
-                      <span className="text-xs text-gray-600 shrink-0">{stock.sector}</span>
+                      <span className="text-gray-500 text-xs">{stock.sector}</span>
                     </div>
-                    {/* Mini metrics */}
-                    <div className="flex gap-3 mt-1">
-                      <span className={`text-xs tabular-nums ${stock.sharpe_estimate > 0.8 ? 'text-green-400' : stock.sharpe_estimate > 0.3 ? 'text-yellow-400' : 'text-gray-500'}`}>
-                        Sh: {stock.sharpe_estimate.toFixed(2)}
-                      </span>
-                      <span className={`text-xs tabular-nums ${stock.momentum_1y >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                        1Y: {stock.momentum_1y >= 0 ? '+' : ''}{stock.momentum_1y.toFixed(1)}%
-                      </span>
-                      <span className="text-xs text-gray-600 tabular-nums">
-                        Vol: {stock.volatility.toFixed(1)}%
-                      </span>
-                      <span className="text-xs text-blue-400 tabular-nums">
-                        Score: {stock.composite_score.toFixed(0)}
-                      </span>
-                    </div>
+
+                    {stock.shares_to_buy && stock.price_per_share ? (
+                      <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                        <span className="text-blue-400 text-xs font-bold tabular-nums">
+                          {stock.shares_to_buy} share{stock.shares_to_buy > 1 ? 's' : ''}
+                        </span>
+                        <span className="text-gray-600 text-xs">×</span>
+                        <span className="text-gray-400 text-xs tabular-nums">
+                          {prefix}{stock.price_per_share.toLocaleString(locale)}
+                        </span>
+                        <span className="text-gray-600 text-xs">=</span>
+                        <span className="text-green-400 text-xs font-bold tabular-nums">
+                          {prefix}{cost.toLocaleString(locale)}
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="flex gap-3 mt-1">
+                        <span className={`text-xs tabular-nums ${stock.sharpe_estimate > 0.8 ? 'text-green-400' : 'text-yellow-400'}`}>
+                          Sharpe {stock.sharpe_estimate.toFixed(2)}
+                        </span>
+                        <span className={`text-xs tabular-nums ${stock.momentum_1y >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                          {stock.momentum_1y >= 0 ? '+' : ''}{stock.momentum_1y.toFixed(1)}% 1Y
+                        </span>
+                      </div>
+                    )}
                   </div>
-                  <div className="text-right shrink-0">
+
+                  <div className="text-right shrink-0 mr-1">
                     <p className="text-white font-bold tabular-nums text-sm">
-                      {prefix}{stock.allocation_amount.toLocaleString('en-IN')}
+                      {prefix}{cost.toLocaleString(locale)}
                     </p>
-                    <p className="text-gray-500 text-xs tabular-nums">{stock.allocation_pct}%</p>
+                    <p className="text-gray-600 text-xs tabular-nums">{stock.allocation_pct}%</p>
                   </div>
-                  <ChevronRight size={13} className={`text-gray-500 shrink-0 transition-transform ${expandedStock === stock.symbol ? 'rotate-90' : ''}`} />
+
+                  {isOpen
+                    ? <ChevronUp   size={13} className="text-gray-500 shrink-0" />
+                    : <ChevronDown size={13} className="text-gray-500 shrink-0" />
+                  }
                 </button>
 
-                {expandedStock === stock.symbol && (
-                  <div className="border-t border-white/[0.04] px-4 pb-4 pt-3 space-y-3 animate-fade-in">
+                {isOpen && (
+                  <div className="border-t border-white/[0.04] px-4 pb-4 pt-3 space-y-4">
+
+                    {stock.shares_to_buy && stock.price_per_share && (
+                      <div className="bg-blue-950/20 border border-blue-800/30 rounded-xl p-4">
+                        <p className="text-blue-400 text-xs font-bold uppercase tracking-wide mb-2">
+                          Purchase Plan
+                        </p>
+                        <p className="text-white font-bold text-base">
+                          Buy {stock.shares_to_buy} share{stock.shares_to_buy > 1 ? 's' : ''} of{' '}
+                          {stock.symbol.replace('.NS', '').replace('.BO', '')}
+                        </p>
+                        <div className="flex items-center gap-2 mt-1 text-sm flex-wrap">
+                          <span className="text-gray-400 tabular-nums">
+                            {prefix}{stock.price_per_share.toLocaleString(locale)} / share
+                          </span>
+                          <span className="text-gray-600">×</span>
+                          <span className="text-gray-400">{stock.shares_to_buy}</span>
+                          <span className="text-gray-600">=</span>
+                          <span className="text-green-400 font-bold tabular-nums">
+                            {prefix}{cost.toLocaleString(locale)}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+
                     <p className="text-gray-300 text-sm leading-relaxed">{stock.why}</p>
+
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                       {[
-                        { label: 'Sharpe Ratio',   value: stock.sharpe_estimate.toFixed(2), color: stock.sharpe_estimate > 0.8 ? 'text-green-400' : 'text-yellow-400' },
-                        { label: '1Y Return',       value: `${stock.momentum_1y >= 0 ? '+' : ''}${stock.momentum_1y.toFixed(1)}%`, color: stock.momentum_1y >= 0 ? 'text-green-400' : 'text-red-400' },
-                        { label: 'Max Drawdown',    value: `${stock.max_drawdown.toFixed(1)}%`, color: stock.max_drawdown > -20 ? 'text-green-400' : 'text-red-400' },
-                        { label: 'Beta',            value: stock.beta.toFixed(2), color: 'text-blue-400' },
-                        { label: 'Volatility',      value: `${stock.volatility.toFixed(1)}%`, color: stock.volatility < 20 ? 'text-green-400' : 'text-yellow-400' },
-                        { label: 'Composite Score', value: `${stock.composite_score.toFixed(0)}/100`, color: 'text-blue-400' },
-                        { label: 'Risk Level',      value: stock.risk_contribution, color: stock.risk_contribution === 'Low' ? 'text-green-400' : stock.risk_contribution === 'Medium' ? 'text-yellow-400' : 'text-red-400' },
-                        { label: 'Sector',          value: stock.sector, color: 'text-gray-300' },
+                        { label: 'Sharpe Ratio',  value: stock.sharpe_estimate.toFixed(2),  color: stock.sharpe_estimate > 0.8 ? 'text-green-400' : stock.sharpe_estimate > 0.3 ? 'text-yellow-400' : 'text-red-400' },
+                        { label: '1Y Return',      value: `${stock.momentum_1y >= 0 ? '+' : ''}${stock.momentum_1y.toFixed(1)}%`, color: stock.momentum_1y >= 0 ? 'text-green-400' : 'text-red-400' },
+                        { label: 'Max Drawdown',   value: `${stock.max_drawdown.toFixed(1)}%`, color: stock.max_drawdown > -20 ? 'text-green-400' : 'text-red-400' },
+                        { label: 'Volatility',     value: `${stock.volatility.toFixed(1)}%`,   color: stock.volatility < 18 ? 'text-green-400' : stock.volatility < 28 ? 'text-yellow-400' : 'text-red-400' },
+                        { label: 'Beta',           value: stock.beta.toFixed(2),               color: 'text-blue-400' },
+                        { label: 'Risk Level',     value: stock.risk_contribution,             color: stock.risk_contribution === 'Low' ? 'text-green-400' : stock.risk_contribution === 'Medium' ? 'text-yellow-400' : 'text-red-400' },
+                        { label: 'Score',          value: `${stock.composite_score.toFixed(0)}/100`, color: 'text-blue-400' },
+                        { label: 'Allocation',     value: `${stock.allocation_pct}%`,          color: 'text-gray-300' },
                       ].map(m => (
-                        <div key={m.label} className="bg-gray-800/40 rounded-lg p-2.5">
-                          <p className="text-gray-600 text-xs mb-0.5">{m.label}</p>
-                          <p className={`text-sm font-semibold tabular-nums ${m.color}`}>{m.value}</p>
+                        <div key={m.label} className="bg-gray-800/40 rounded-xl p-3">
+                          <p className="text-gray-600 text-xs mb-1">{m.label}</p>
+                          <p className={`font-bold text-sm tabular-nums ${m.color}`}>{m.value}</p>
                         </div>
                       ))}
                     </div>
                   </div>
                 )}
               </div>
-            ))}
+            )
+          })}
+        </div>
+      </div>
+
+      {/* Uninvested cash callout */}
+      {uninvestedCash > 100 && (
+        <div className="card p-4 border-yellow-800/40 bg-yellow-950/10">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-start gap-2">
+              <Info size={15} className="text-yellow-400 shrink-0 mt-0.5" />
+              <div>
+                <p className="text-yellow-400 font-semibold text-sm">
+                  {prefix}{Math.round(uninvestedCash).toLocaleString(locale)} uninvested
+                </p>
+                <p className="text-gray-500 text-xs mt-0.5">
+                  Cannot be invested in fractional shares.
+                  Keep in savings account or add to your next SIP date.
+                </p>
+              </div>
+            </div>
+            <p className="text-yellow-400 font-bold tabular-nums shrink-0">
+              {prefix}{Math.round(uninvestedCash).toLocaleString(locale)}
+            </p>
           </div>
         </div>
+      )}
 
-        <p className="text-gray-700 text-xs text-center mt-8">
-          AI-generated using real market data for educational purposes only.
-          Not financial advice. Past performance does not guarantee future results.
-          Consult a SEBI-registered investment advisor before investing.
-        </p>
+      {/* Sector allocation */}
+      <div className="card p-5">
+        <h4 className="text-white font-semibold text-sm mb-4 flex items-center gap-2">
+          <PieChart size={14} className="text-blue-400" />
+          Sector Allocation
+        </h4>
+        <div className="space-y-2.5">
+          {result.sector_allocation.map(s => (
+            <div key={s.sector} className="flex items-center gap-3">
+              <span className="text-gray-400 text-xs w-24 shrink-0">{s.sector}</span>
+              <div className="flex-1 bg-gray-800 rounded-full h-1.5 overflow-hidden">
+                <div
+                  className="h-full bg-blue-500 rounded-full"
+                  style={{ width: `${s.weight_pct}%` }}
+                />
+              </div>
+              <span className="text-gray-500 text-xs w-10 text-right tabular-nums">
+                {s.weight_pct.toFixed(1)}%
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Score breakdown */}
+      {result.score_breakdown && Object.keys(result.score_breakdown).length > 0 && (
+        <div className="card p-5">
+          <button
+            onClick={() => setShowBreakdown(!showBreakdown)}
+            className="flex items-center justify-between w-full text-left"
+          >
+            <h4 className="text-white font-semibold text-sm flex items-center gap-2">
+              <BarChart3 size={14} className="text-purple-400" />
+              Score Breakdown
+            </h4>
+            {showBreakdown
+              ? <ChevronUp   size={14} className="text-gray-500" />
+              : <ChevronDown size={14} className="text-gray-500" />
+            }
+          </button>
+
+          {showBreakdown && (
+            <div className="mt-4 space-y-3">
+              {Object.entries(result.score_breakdown).map(([key, val]) => (
+                <div key={key}>
+                  <div className="flex justify-between text-xs mb-1">
+                    <span className="text-gray-400 capitalize">{key.replace(/_/g, ' ')}</span>
+                    <span className="text-gray-500 tabular-nums">{val.toFixed(1)}</span>
+                  </div>
+                  <ScoreBar value={val} max={30} color="bg-purple-500" />
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Data note */}
+      <div className="flex items-start gap-2 px-1">
+        <Info size={12} className="text-gray-700 shrink-0 mt-0.5" />
+        <p className="text-gray-700 text-xs">{result.data_note}</p>
+      </div>
+
+      {/* Profile explanation */}
+      <div className="card p-4">
+        <div className="flex items-center gap-2 mb-2">
+          <Shield size={14} className={PROFILE_COLOR[result.profile.category] ?? 'text-gray-400'} />
+          <span className={`text-sm font-semibold capitalize ${PROFILE_COLOR[result.profile.category] ?? 'text-gray-400'}`}>
+            {result.profile.category} Profile
+          </span>
+          <span className="text-gray-600 text-xs ml-auto tabular-nums">
+            {Math.round(result.profile.confidence * 100)}% confidence
+          </span>
+        </div>
+        <p className="text-gray-400 text-xs leading-relaxed">{result.profile.explanation}</p>
+      </div>
+
+      {/* CTAs */}
+      <div className="flex gap-3">
+        <button
+          onClick={onReset}
+          className="flex-1 flex items-center justify-center gap-2 border border-gray-700 hover:border-gray-500 text-gray-400 hover:text-white py-3 rounded-xl text-sm font-medium transition-all"
+        >
+          <RefreshCw size={15} /> Rebuild Portfolio
+        </button>
+        <button
+          onClick={() => { window.location.href = '/dashboard' }}
+          className="flex-1 flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-500 text-white py-3 rounded-xl text-sm font-semibold transition-all shadow-lg shadow-blue-600/20"
+        >
+          Analyse My Holdings <ArrowRight size={15} />
+        </button>
+      </div>
+
+    </div>
+  )
+}
+
+// ── Main component ────────────────────────────────────────────
+
+export default function Recommend() {
+  const navigate = useNavigate()
+
+  const [step,       setStep]       = useState(1)
+  const [amount,     setAmount]     = useState('100000')
+  const [market,     setMarket]     = useState('india')
+  const [horizon,    setHorizon]    = useState('medium')
+  const [goal,       setGoal]       = useState('wealth_creation')
+  const [sectors,    setSectors]    = useState<string[]>([])
+  const [stockCount, setStockCount] = useState(7)
+  const [loading,    setLoading]    = useState(false)
+  const [result,     setResult]     = useState<RecommendationResult | null>(null)
+  const [error,      setError]      = useState<string | null>(null)
+
+  const numAmount = parseFloat(amount) || 0
+
+  const generate = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const res = await axios.post(
+        `${API}/api/recommendation/generate`,
+        {
+          amount:            numAmount,
+          goal,
+          horizon,
+          market,
+          preferred_sectors: sectors,
+          n_stocks_min:      stockCount - 1,
+          n_stocks_max:      stockCount + 1,
+        },
+        { timeout: 120_000 }
+      )
+      if (res.data.error) {
+        setError(res.data.error)
+      } else {
+        setResult(res.data)
+      }
+    } catch (e: any) {
+      setError(
+        e.response?.data?.detail ||
+        e.message ||
+        'Failed to generate recommendation. Try again.'
+      )
+    } finally {
+      setLoading(false)
+    }
+  }, [numAmount, goal, horizon, market, sectors, stockCount])
+
+  const reset = useCallback(() => {
+    setResult(null)
+    setError(null)
+    setStep(1)
+  }, [])
+
+  return (
+    <div className="min-h-screen bg-gray-950">
+      <div className="max-w-4xl mx-auto px-4 py-8 md:py-12">
+
+        {!result && !loading && (
+          <div className="text-center mb-8">
+            <button
+              onClick={() => navigate('/')}
+              className="text-gray-600 hover:text-gray-400 text-sm mb-4 block mx-auto"
+            >
+              ← Back
+            </button>
+            <div className="flex items-center justify-center gap-2 mb-3">
+              <div className="w-10 h-10 bg-blue-600/20 border border-blue-700/40 rounded-2xl flex items-center justify-center">
+                <Sparkles size={20} className="text-blue-400" />
+              </div>
+            </div>
+            <h1 className="text-3xl font-bold text-white mb-2">AI Investment Advisor</h1>
+            <p className="text-gray-500 text-sm max-w-md mx-auto">
+              Build your portfolio · Powered by real market data · Scored on Sharpe, momentum &amp; drawdown ·{' '}
+              <span className="text-blue-400">Whole shares only</span>
+            </p>
+          </div>
+        )}
+
+        {result ? (
+          <ResultScreen result={result} amount={numAmount} onReset={reset} />
+        ) : loading ? (
+          <LoadingScreen />
+        ) : (
+          <>
+            {/* fix: removed unused `total` prop */}
+            <StepIndicator current={step} />
+
+            {error && (
+              <div className="max-w-xl mx-auto mb-4 flex items-start gap-2 bg-red-950/30 border border-red-800 text-red-400 text-sm px-4 py-3 rounded-xl">
+                <AlertTriangle size={15} className="shrink-0 mt-0.5" />
+                <span>{error}</span>
+              </div>
+            )}
+
+            {step === 1 && (
+              <StepCapital amount={amount} setAmount={setAmount} onNext={() => setStep(2)} />
+            )}
+            {step === 2 && (
+              <StepMarket market={market} setMarket={setMarket} onBack={() => setStep(1)} onNext={() => setStep(3)} />
+            )}
+            {step === 3 && (
+              <StepHorizon horizon={horizon} setHorizon={setHorizon} onBack={() => setStep(2)} onNext={() => setStep(4)} />
+            )}
+            {step === 4 && (
+              <StepGoal goal={goal} setGoal={setGoal} onBack={() => setStep(3)} onNext={() => setStep(5)} />
+            )}
+            {step === 5 && (
+              <StepSectors selected={sectors} setSelected={setSectors} onBack={() => setStep(4)} onNext={() => setStep(6)} />
+            )}
+            {step === 6 && (
+              <StepStockCount count={stockCount} setCount={setStockCount} onBack={() => setStep(5)} onGenerate={generate} loading={loading} />
+            )}
+          </>
+        )}
       </div>
     </div>
   )
-})
+}

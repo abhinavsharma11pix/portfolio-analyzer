@@ -133,7 +133,7 @@ const Navbar = memo(function Navbar({
       } catch { /* silent */ }
     }
     fetchUnread()
-    const iv = setInterval(fetchUnread, 30000)
+    const iv = setInterval(fetchUnread, 60000)
     return () => clearInterval(iv)
   }, [])
 

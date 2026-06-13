@@ -8,6 +8,10 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import ORJSONResponse
 from app.core.config import get_settings
 from app.db.migrations import run_migrations
+import os
+from app.core.config import CORS_ORIGINS
+
+
 
 
 
@@ -55,6 +59,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=CORS_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 @app.middleware("http")
 async def timing_middleware(request: Request, call_next):
