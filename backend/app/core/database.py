@@ -17,12 +17,9 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-DB_FILE = os.getenv("SQLITE_DB_PATH", "/data/portfolio.db")
+DB_FILE = os.getenv("SQLITE_DB_PATH", "portfolio.db")
 
-
-def get_connection() -> sqlite3.Connection:
-    os.makedirs(os.path.dirname(DB_FILE), exist_ok=True)
-
+def get_connection():
     conn = sqlite3.connect(
         DB_FILE,
         check_same_thread=False,
@@ -34,6 +31,5 @@ def get_connection() -> sqlite3.Connection:
     conn.execute("PRAGMA foreign_keys=ON")
 
     return conn
-
 
 logger.info(f"📦 DB: SQLite -> {DB_FILE}")
