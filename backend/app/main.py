@@ -10,6 +10,9 @@ from app.core.config import get_settings
 from app.db.migrations import run_migrations
 import os
 from app.core.config import CORS_ORIGINS
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 
 
@@ -113,6 +116,9 @@ app.include_router(tax_router,    prefix="/api/tax",    tags=["Tax"])
 app.include_router(reports_router, prefix="/api/reports", tags=["Reports"])
 app.include_router(alerts_router,  prefix="/api/alerts",  tags=["Alerts"])
 app.include_router(tax_router,     prefix="/api/tax",     tags=["Tax"])
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 @app.get("/")
 def root():
@@ -122,7 +128,7 @@ def root():
 @app.get("/health")
 def health():
     from app.cache.store import stats
-    return {"status": "healthy", "cache": stats()}
+    return {"status": "healthy", "cache": stats(),  "version": "5.0.0"}
 
 
 @app.get("/api/db/status")

@@ -52,6 +52,10 @@ async def get_risk_profile(req: ProfileRequest):
         "volatility_target": profile.volatility_target,
     }
 
+from app.main import limiter
+
+@router.post("/generate")
+@limiter.limit("3/minute")
 
 @router.post("/generate")
 async def generate(req: RecommendationRequest):

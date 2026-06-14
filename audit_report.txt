@@ -1,0 +1,865 @@
+==============================================
+  PORTFOLIOAI PROJECT AUDIT
+  Generated: Sun Jun 14 17:25:58 IST 2026
+==============================================
+
+── 1. PROJECT STRUCTURE ─────────────────────
+./.gitignore
+./.vscode/settings.json
+./audit_project.sh
+./audit_report.txt
+./backend/.DS_Store
+./backend/.env
+./backend/Procfile
+./backend/README.md
+./backend/app/.DS_Store
+./backend/app/__init__.py
+./backend/app/ai/decision_engine.py
+./backend/app/ai/explainer.py
+./backend/app/alerts/__init__.py
+./backend/app/alerts/engine.py
+./backend/app/analytics/__init__.py
+./backend/app/analytics/advanced_metrics.py
+./backend/app/analytics/benchmark.py
+./backend/app/analytics/portfolio_returns.py
+./backend/app/analytics/simulator.py
+./backend/app/api/.DS_Store
+./backend/app/api/__init__.py
+./backend/app/api/dependencies.py
+./backend/app/api/routes/__init__.py
+./backend/app/api/routes/alerts.py
+./backend/app/api/routes/analytics.py
+./backend/app/api/routes/auth.py
+./backend/app/api/routes/decisions.py
+./backend/app/api/routes/fundamentals.py
+./backend/app/api/routes/portfolio.py
+./backend/app/api/routes/portfolios.py
+./backend/app/api/routes/recommendation.py
+./backend/app/api/routes/reports.py
+./backend/app/api/routes/tax.py
+./backend/app/api/routes/websocket.py
+./backend/app/cache/__init__.py
+./backend/app/cache/store.py
+./backend/app/cache/symbol_cache.py
+./backend/app/core/__init__.py
+./backend/app/core/cache.py
+./backend/app/core/config.py
+./backend/app/core/connection_manager.py
+./backend/app/core/database.py
+./backend/app/core/market_calendar.py
+./backend/app/core/price_broadcaster.py
+./backend/app/core/scheduler.py
+./backend/app/core/security.py
+./backend/app/data/__init__.py
+./backend/app/data/nse_scraper.py
+./backend/app/data/portfolio.db
+./backend/app/db/__init__.py
+./backend/app/db/migrations.py
+./backend/app/db/repositories.py
+./backend/app/db/user_repository.py
+./backend/app/fundamental/__init__.py
+./backend/app/fundamental/fetcher.py
+./backend/app/ingestion/__init__.py
+./backend/app/ingestion/base.py
+./backend/app/ingestion/cleaner.py
+./backend/app/ingestion/csv_ingester.py
+./backend/app/ingestion/deduplicator.py
+./backend/app/ingestion/factory.py
+./backend/app/ingestion/groww_ingester.py
+./backend/app/ingestion/pdf_ingester.py
+./backend/app/ingestion/schema.py
+./backend/app/ingestion/symbol_mapper.py
+./backend/app/ingestion/symbol_resolver.py
+./backend/app/ingestion/validator.py
+./backend/app/ingestion/zerodha_ingester.py
+./backend/app/main.py
+./backend/app/market_data/__init__.py
+./backend/app/market_data/price_engine.py
+./backend/app/ml/__init__.py
+./backend/app/ml/arima_model.py
+./backend/app/ml/ensemble.py
+./backend/app/ml/feature_engineer.py
+./backend/app/ml/gb_model.py
+./backend/app/ml/rf_model.py
+./backend/app/recommendation/__init__.py
+./backend/app/recommendation/engine.py
+./backend/app/recommendation/portfolio_builder.py
+./backend/app/recommendation/scorer.py
+./backend/app/recommendation/universe.py
+./backend/app/reports/__init__.py
+./backend/app/reports/generator.py
+./backend/app/services/__init__.py
+./backend/app/services/insights_engine.py
+./backend/app/services/instrument_service.py
+./backend/app/services/llm_service.py
+./backend/app/services/ml_insights.py
+./backend/app/services/prediction_service.py
+./backend/app/services/risk_service.py
+./backend/app/services/stock_service.py
+./backend/app/services/template_generator.py
+./backend/app/tax/__init__.py
+./backend/app/tax/engine.py
+./backend/data/.DS_Store
+./backend/data/cache/diskcache/34/4a/1e82d82394549e7e7af1bf73bb4c.val
+./backend/data/cache/diskcache/cache.db
+./backend/data/cache/diskcache/cache.db-shm
+./backend/data/cache/diskcache/cache.db-wal
+./backend/data/cache/diskcache/ff/2d/3d8346e0ea25befe262adf44fefc.val
+./backend/data/delisted_symbols.json
+./backend/data/portfolio.db
+./backend/data/valid_symbols.json
+./backend/portfolio.db
+./backend/render.yaml
+./backend/requirements.txt
+./backend/requirements.txt~
+./backend/runtime.txt
+./backend/venv/.gitignore
+./backend/venv/bin/Activate.ps1
+./backend/venv/bin/activate
+./backend/venv/bin/activate.csh
+./backend/venv/bin/activate.fish
+./backend/venv/bin/pip
+./backend/venv/bin/pip3
+./backend/venv/bin/pip3.14
+./backend/venv/lib/python3.14/site-packages/pip-25.3.dist-info/INSTALLER
+./backend/venv/lib/python3.14/site-packages/pip-25.3.dist-info/METADATA
+./backend/venv/lib/python3.14/site-packages/pip-25.3.dist-info/RECORD
+./backend/venv/lib/python3.14/site-packages/pip-25.3.dist-info/REQUESTED
+./backend/venv/lib/python3.14/site-packages/pip-25.3.dist-info/WHEEL
+./backend/venv/lib/python3.14/site-packages/pip-25.3.dist-info/entry_points.txt
+./backend/venv/lib/python3.14/site-packages/pip-25.3.dist-info/licenses/AUTHORS.txt
+./backend/venv/lib/python3.14/site-packages/pip-25.3.dist-info/licenses/LICENSE.txt
+./backend/venv/lib/python3.14/site-packages/pip-25.3.dist-info/licenses/src/pip/_vendor/cachecontrol/LICENSE.txt
+./backend/venv/lib/python3.14/site-packages/pip-25.3.dist-info/licenses/src/pip/_vendor/certifi/LICENSE
+./backend/venv/lib/python3.14/site-packages/pip-25.3.dist-info/licenses/src/pip/_vendor/dependency_groups/LICENSE.txt
+./backend/venv/lib/python3.14/site-packages/pip-25.3.dist-info/licenses/src/pip/_vendor/distlib/LICENSE.txt
+./backend/venv/lib/python3.14/site-packages/pip-25.3.dist-info/licenses/src/pip/_vendor/distro/LICENSE
+./backend/venv/lib/python3.14/site-packages/pip-25.3.dist-info/licenses/src/pip/_vendor/idna/LICENSE.md
+./backend/venv/lib/python3.14/site-packages/pip-25.3.dist-info/licenses/src/pip/_vendor/msgpack/COPYING
+./backend/venv/lib/python3.14/site-packages/pip-25.3.dist-info/licenses/src/pip/_vendor/packaging/LICENSE
+./backend/venv/lib/python3.14/site-packages/pip-25.3.dist-info/licenses/src/pip/_vendor/packaging/LICENSE.APACHE
+./backend/venv/lib/python3.14/site-packages/pip-25.3.dist-info/licenses/src/pip/_vendor/packaging/LICENSE.BSD
+./backend/venv/lib/python3.14/site-packages/pip-25.3.dist-info/licenses/src/pip/_vendor/pkg_resources/LICENSE
+./backend/venv/lib/python3.14/site-packages/pip-25.3.dist-info/licenses/src/pip/_vendor/platformdirs/LICENSE
+./backend/venv/lib/python3.14/site-packages/pip-25.3.dist-info/licenses/src/pip/_vendor/pygments/LICENSE
+./backend/venv/lib/python3.14/site-packages/pip-25.3.dist-info/licenses/src/pip/_vendor/pyproject_hooks/LICENSE
+./backend/venv/lib/python3.14/site-packages/pip-25.3.dist-info/licenses/src/pip/_vendor/requests/LICENSE
+./backend/venv/lib/python3.14/site-packages/pip-25.3.dist-info/licenses/src/pip/_vendor/resolvelib/LICENSE
+./backend/venv/lib/python3.14/site-packages/pip-25.3.dist-info/licenses/src/pip/_vendor/rich/LICENSE
+./backend/venv/lib/python3.14/site-packages/pip-25.3.dist-info/licenses/src/pip/_vendor/tomli/LICENSE
+./backend/venv/lib/python3.14/site-packages/pip-25.3.dist-info/licenses/src/pip/_vendor/tomli_w/LICENSE
+./backend/venv/lib/python3.14/site-packages/pip-25.3.dist-info/licenses/src/pip/_vendor/truststore/LICENSE
+./backend/venv/lib/python3.14/site-packages/pip-25.3.dist-info/licenses/src/pip/_vendor/urllib3/LICENSE.txt
+./backend/venv/lib/python3.14/site-packages/pip/__init__.py
+./backend/venv/lib/python3.14/site-packages/pip/__main__.py
+./backend/venv/lib/python3.14/site-packages/pip/__pip-runner__.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/__init__.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/build_env.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/cache.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/cli/__init__.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/cli/autocompletion.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/cli/base_command.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/cli/cmdoptions.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/cli/command_context.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/cli/index_command.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/cli/main.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/cli/main_parser.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/cli/parser.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/cli/progress_bars.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/cli/req_command.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/cli/spinners.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/cli/status_codes.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/commands/__init__.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/commands/cache.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/commands/check.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/commands/completion.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/commands/configuration.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/commands/debug.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/commands/download.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/commands/freeze.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/commands/hash.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/commands/help.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/commands/index.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/commands/inspect.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/commands/install.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/commands/list.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/commands/lock.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/commands/search.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/commands/show.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/commands/uninstall.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/commands/wheel.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/configuration.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/distributions/__init__.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/distributions/base.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/distributions/installed.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/distributions/sdist.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/distributions/wheel.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/exceptions.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/index/__init__.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/index/collector.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/index/package_finder.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/index/sources.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/locations/__init__.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/locations/_distutils.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/locations/_sysconfig.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/locations/base.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/main.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/metadata/__init__.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/metadata/_json.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/metadata/base.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/metadata/importlib/__init__.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/metadata/importlib/_compat.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/metadata/importlib/_dists.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/metadata/importlib/_envs.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/metadata/pkg_resources.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/models/__init__.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/models/candidate.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/models/direct_url.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/models/format_control.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/models/index.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/models/installation_report.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/models/link.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/models/pylock.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/models/scheme.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/models/search_scope.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/models/selection_prefs.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/models/target_python.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/models/wheel.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/network/__init__.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/network/auth.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/network/cache.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/network/download.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/network/lazy_wheel.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/network/session.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/network/utils.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/network/xmlrpc.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/operations/__init__.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/operations/build/__init__.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/operations/build/build_tracker.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/operations/build/metadata.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/operations/build/metadata_editable.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/operations/build/wheel.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/operations/build/wheel_editable.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/operations/check.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/operations/freeze.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/operations/install/__init__.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/operations/install/wheel.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/operations/prepare.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/pyproject.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/req/__init__.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/req/constructors.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/req/req_dependency_group.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/req/req_file.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/req/req_install.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/req/req_set.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/req/req_uninstall.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/resolution/__init__.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/resolution/base.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/resolution/legacy/__init__.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/resolution/legacy/resolver.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/resolution/resolvelib/__init__.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/resolution/resolvelib/base.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/resolution/resolvelib/candidates.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/resolution/resolvelib/factory.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/resolution/resolvelib/found_candidates.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/resolution/resolvelib/provider.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/resolution/resolvelib/reporter.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/resolution/resolvelib/requirements.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/resolution/resolvelib/resolver.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/self_outdated_check.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/utils/__init__.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/utils/_jaraco_text.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/utils/_log.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/utils/appdirs.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/utils/compat.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/utils/compatibility_tags.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/utils/datetime.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/utils/deprecation.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/utils/direct_url_helpers.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/utils/egg_link.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/utils/entrypoints.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/utils/filesystem.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/utils/filetypes.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/utils/glibc.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/utils/hashes.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/utils/logging.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/utils/misc.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/utils/packaging.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/utils/retry.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/utils/subprocess.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/utils/temp_dir.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/utils/unpacking.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/utils/urls.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/utils/virtualenv.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/utils/wheel.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/vcs/__init__.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/vcs/bazaar.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/vcs/git.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/vcs/mercurial.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/vcs/subversion.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/vcs/versioncontrol.py
+./backend/venv/lib/python3.14/site-packages/pip/_internal/wheel_builder.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/README.rst
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/__init__.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/cachecontrol/LICENSE.txt
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/cachecontrol/__init__.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/cachecontrol/_cmd.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/cachecontrol/adapter.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/cachecontrol/cache.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/cachecontrol/caches/__init__.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/cachecontrol/caches/file_cache.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/cachecontrol/caches/redis_cache.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/cachecontrol/controller.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/cachecontrol/filewrapper.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/cachecontrol/heuristics.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/cachecontrol/py.typed
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/cachecontrol/serialize.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/cachecontrol/wrapper.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/certifi/LICENSE
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/certifi/__init__.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/certifi/__main__.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/certifi/cacert.pem
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/certifi/core.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/certifi/py.typed
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/dependency_groups/LICENSE.txt
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/dependency_groups/__init__.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/dependency_groups/__main__.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/dependency_groups/_implementation.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/dependency_groups/_lint_dependency_groups.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/dependency_groups/_pip_wrapper.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/dependency_groups/_toml_compat.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/dependency_groups/py.typed
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/distlib/LICENSE.txt
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/distlib/__init__.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/distlib/compat.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/distlib/resources.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/distlib/scripts.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/distlib/t32.exe
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/distlib/t64-arm.exe
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/distlib/t64.exe
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/distlib/util.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/distlib/w32.exe
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/distlib/w64-arm.exe
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/distlib/w64.exe
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/distro/LICENSE
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/distro/__init__.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/distro/__main__.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/distro/distro.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/distro/py.typed
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/idna/LICENSE.md
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/idna/__init__.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/idna/codec.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/idna/compat.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/idna/core.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/idna/idnadata.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/idna/intranges.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/idna/package_data.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/idna/py.typed
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/idna/uts46data.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/msgpack/COPYING
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/msgpack/__init__.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/msgpack/exceptions.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/msgpack/ext.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/msgpack/fallback.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/packaging/LICENSE
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/packaging/LICENSE.APACHE
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/packaging/LICENSE.BSD
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/packaging/__init__.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/packaging/_elffile.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/packaging/_manylinux.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/packaging/_musllinux.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/packaging/_parser.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/packaging/_structures.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/packaging/_tokenizer.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/packaging/licenses/__init__.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/packaging/licenses/_spdx.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/packaging/markers.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/packaging/metadata.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/packaging/py.typed
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/packaging/requirements.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/packaging/specifiers.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/packaging/tags.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/packaging/utils.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/packaging/version.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/pkg_resources/LICENSE
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/pkg_resources/__init__.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/platformdirs/LICENSE
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/platformdirs/__init__.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/platformdirs/__main__.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/platformdirs/android.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/platformdirs/api.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/platformdirs/macos.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/platformdirs/py.typed
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/platformdirs/unix.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/platformdirs/version.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/platformdirs/windows.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/pygments/LICENSE
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/pygments/__init__.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/pygments/__main__.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/pygments/console.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/pygments/filter.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/pygments/filters/__init__.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/pygments/formatter.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/pygments/formatters/__init__.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/pygments/formatters/_mapping.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/pygments/lexer.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/pygments/lexers/__init__.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/pygments/lexers/_mapping.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/pygments/lexers/python.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/pygments/modeline.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/pygments/plugin.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/pygments/regexopt.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/pygments/scanner.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/pygments/sphinxext.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/pygments/style.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/pygments/styles/__init__.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/pygments/styles/_mapping.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/pygments/token.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/pygments/unistring.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/pygments/util.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/pyproject_hooks/LICENSE
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/pyproject_hooks/__init__.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/pyproject_hooks/_impl.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/pyproject_hooks/_in_process/__init__.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/pyproject_hooks/_in_process/_in_process.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/pyproject_hooks/py.typed
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/requests/LICENSE
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/requests/__init__.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/requests/__version__.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/requests/_internal_utils.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/requests/adapters.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/requests/api.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/requests/auth.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/requests/certs.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/requests/compat.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/requests/cookies.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/requests/exceptions.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/requests/help.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/requests/hooks.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/requests/models.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/requests/packages.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/requests/sessions.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/requests/status_codes.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/requests/structures.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/requests/utils.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/resolvelib/LICENSE
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/resolvelib/__init__.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/resolvelib/providers.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/resolvelib/py.typed
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/resolvelib/reporters.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/resolvelib/resolvers/__init__.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/resolvelib/resolvers/abstract.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/resolvelib/resolvers/criterion.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/resolvelib/resolvers/exceptions.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/resolvelib/resolvers/resolution.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/resolvelib/structs.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/LICENSE
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/__init__.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/__main__.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/_cell_widths.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/_emoji_codes.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/_emoji_replace.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/_export_format.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/_extension.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/_fileno.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/_inspect.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/_log_render.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/_loop.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/_null_file.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/_palettes.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/_pick.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/_ratio.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/_spinners.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/_stack.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/_timer.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/_win32_console.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/_windows.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/_windows_renderer.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/_wrap.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/abc.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/align.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/ansi.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/bar.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/box.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/cells.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/color.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/color_triplet.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/columns.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/console.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/constrain.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/containers.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/control.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/default_styles.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/diagnose.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/emoji.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/errors.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/file_proxy.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/filesize.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/highlighter.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/json.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/jupyter.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/layout.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/live.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/live_render.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/logging.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/markup.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/measure.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/padding.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/pager.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/palette.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/panel.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/pretty.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/progress.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/progress_bar.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/prompt.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/protocol.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/py.typed
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/region.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/repr.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/rule.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/scope.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/screen.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/segment.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/spinner.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/status.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/style.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/styled.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/syntax.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/table.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/terminal_theme.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/text.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/theme.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/themes.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/traceback.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/tree.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/tomli/LICENSE
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/tomli/__init__.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/tomli/_parser.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/tomli/_re.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/tomli/_types.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/tomli/py.typed
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/tomli_w/LICENSE
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/tomli_w/__init__.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/tomli_w/_writer.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/tomli_w/py.typed
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/truststore/LICENSE
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/truststore/__init__.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/truststore/_api.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/truststore/_macos.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/truststore/_openssl.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/truststore/_ssl_constants.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/truststore/_windows.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/truststore/py.typed
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/urllib3/LICENSE.txt
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/urllib3/__init__.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/urllib3/_collections.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/urllib3/_version.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/urllib3/connection.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/urllib3/connectionpool.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/urllib3/contrib/__init__.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/urllib3/contrib/_appengine_environ.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/urllib3/contrib/_securetransport/__init__.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/urllib3/contrib/_securetransport/bindings.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/urllib3/contrib/_securetransport/low_level.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/urllib3/contrib/appengine.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/urllib3/contrib/ntlmpool.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/urllib3/contrib/pyopenssl.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/urllib3/contrib/securetransport.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/urllib3/contrib/socks.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/urllib3/exceptions.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/urllib3/fields.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/urllib3/filepost.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/urllib3/packages/__init__.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/urllib3/packages/backports/__init__.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/urllib3/packages/backports/makefile.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/urllib3/packages/backports/weakref_finalize.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/urllib3/packages/six.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/urllib3/poolmanager.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/urllib3/request.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/urllib3/response.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/urllib3/util/__init__.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/urllib3/util/connection.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/urllib3/util/proxy.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/urllib3/util/queue.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/urllib3/util/request.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/urllib3/util/response.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/urllib3/util/retry.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/urllib3/util/ssl_.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/urllib3/util/ssl_match_hostname.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/urllib3/util/ssltransport.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/urllib3/util/timeout.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/urllib3/util/url.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/urllib3/util/wait.py
+./backend/venv/lib/python3.14/site-packages/pip/_vendor/vendor.txt
+./backend/venv/lib/python3.14/site-packages/pip/py.typed
+./backend/venv/pyvenv.cfg
+./frontend/.DS_Store
+./frontend/.env.development
+./frontend/.env.production
+./frontend/.gitignore
+./frontend/README.md
+./frontend/eslint.config.js
+./frontend/index.html
+./frontend/package-lock.json
+./frontend/package.json
+./frontend/postcss.config.js
+./frontend/public/favicon.svg
+./frontend/public/icons.svg
+./frontend/src/App.css
+./frontend/src/App.tsx
+./frontend/src/assets/hero.png
+./frontend/src/assets/react.svg
+./frontend/src/assets/vite.svg
+./frontend/src/components/AIInsights.tsx
+./frontend/src/components/AdvancedMetrics.tsx
+./frontend/src/components/AlertManager.tsx
+./frontend/src/components/BenchmarkChart.tsx
+./frontend/src/components/FundamentalsPanel.tsx
+./frontend/src/components/HoldingsChart.tsx
+./frontend/src/components/LivePriceTicker.tsx
+./frontend/src/components/MarketStatusBar.tsx
+./frontend/src/components/Navbar.tsx
+./frontend/src/components/PredictionChart.tsx
+./frontend/src/components/PriceAlertBanner.tsx
+./frontend/src/components/RiskMetrics.tsx
+./frontend/src/components/SavePortfolioModal.tsx
+./frontend/src/components/ScenarioSimulator.tsx
+./frontend/src/components/SectorChart.tsx
+./frontend/src/components/SummaryCards.tsx
+./frontend/src/components/TodayDashboard.tsx
+./frontend/src/components/UploadPortfolio.tsx
+./frontend/src/components/ui/Section.tsx
+./frontend/src/components/ui/Skeleton.tsx
+./frontend/src/components/ui/Tooltip.tsx
+./frontend/src/context/AuthContext.tsx
+./frontend/src/hooks/usePriceRefresh.ts
+./frontend/src/hooks/useWebSocket.ts
+./frontend/src/index.css
+./frontend/src/main.tsx
+./frontend/src/pages/Dashboard.tsx
+./frontend/src/pages/Home.tsx
+./frontend/src/pages/Login.tsx
+./frontend/src/pages/Recommend.tsx
+./frontend/src/pages/Register.tsx
+./frontend/src/pages/Reports.tsx
+./frontend/src/pages/ReportsPage.tsx
+./frontend/src/pages/TaxEngine.tsx
+./frontend/src/services/api.ts
+./frontend/src/services/auth.ts
+./frontend/src/services/queryClient.ts
+./frontend/src/services/vercel.json
+./frontend/tailwind.config.js
+./frontend/tsconfig.app.json
+./frontend/tsconfig.json
+./frontend/tsconfig.node.json
+./frontend/vite.config.ts
+
+── 2. FILE COUNTS BY TYPE ───────────────────
+ 482 py
+  32 tsx
+  15 txt
+  14 typed
+   9 json
+   6 ts
+   6 exe
+   5 DS_Store
+   4 svg
+   4 md
+   4 db
+   3 js
+   3 gitignore
+   2 val
+   2 css
+   2 BSD
+   2 APACHE
+   1 yaml
+   1 txt~
+   1 sh
+   1 rst
+   1 ps1
+   1 production
+   1 png
+   1 pem
+   1 html
+   1 fish
+   1 env
+   1 development
+   1 db-wal
+   1 db-shm
+   1 csh
+   1 cfg
+   1 14
+
+── 3. TOP 20 LARGEST FILES ──────────────────
+300K	./backend/venv/lib/python3.14/site-packages/pip/_vendor/idna/__pycache__/uts46data.cpython-314.pyc
+288K	./backend/venv/lib/python3.14/site-packages/pip/_vendor/certifi/cacert.pem
+236K	./backend/venv/lib/python3.14/site-packages/pip/_vendor/idna/uts46data.py
+232K	./backend/data/portfolio.db
+204K	./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/__pycache__/_emoji_codes.cpython-314.pyc
+188K	./backend/venv/lib/python3.14/site-packages/pip/_vendor/pkg_resources/__pycache__/__init__.cpython-314.pyc
+180K	./backend/venv/lib/python3.14/site-packages/pip/_vendor/distlib/t64-arm.exe
+168K	./backend/venv/lib/python3.14/site-packages/pip/_vendor/distlib/w64-arm.exe
+164K	./frontend/package-lock.json
+148K	./backend/portfolio.db
+140K	./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/_emoji_codes.py
+136K	./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/__pycache__/console.cpython-314.pyc
+132K	./backend/data/cache/diskcache/ff/2d/3d8346e0ea25befe262adf44fefc.val
+124K	./backend/venv/lib/python3.14/site-packages/pip/_vendor/pkg_resources/__init__.py
+108K	./backend/venv/lib/python3.14/site-packages/pip/_vendor/distlib/t64.exe
+104K	./backend/app/data/portfolio.db
+100K	./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/console.py
+100K	./backend/venv/lib/python3.14/site-packages/pip/_vendor/idna/__pycache__/idnadata.cpython-314.pyc
+100K	./backend/venv/lib/python3.14/site-packages/pip/_vendor/distlib/w64.exe
+ 96K	./backend/venv/lib/python3.14/site-packages/pip/_vendor/distlib/t32.exe
+
+── 4. TOP-LEVEL DIRECTORY SIZES ─────────────
+1.9G	./backend
+288M	./frontend
+ 48K	./audit_report.txt
+ 12K	./audit_project.sh
+
+Backend subdirs:
+1.9G	./backend/venv311/
+ 12M	./backend/venv/
+1.3M	./backend/app/
+516K	./backend/data/
+
+Frontend subdirs:
+288M	./frontend/node_modules/
+384K	./frontend/src/
+ 20K	./frontend/public/
+
+── 5. DUPLICATE FILES (same content) ────────
+Hash 0a7c33d15f9efa876b1b3c189d2af58b:
+0a7c33d15f9efa876b1b3c189d2af58b ./backend/venv/lib/python3.14/site-packages/pip-25.3.dist-info/licenses/src/pip/_vendor/dependency_groups/LICENSE.txt
+0a7c33d15f9efa876b1b3c189d2af58b ./backend/venv/lib/python3.14/site-packages/pip/_vendor/dependency_groups/LICENSE.txt
+Hash 11618cb6a975948679286b1211bd573c:
+11618cb6a975948679286b1211bd573c ./backend/venv/lib/python3.14/site-packages/pip-25.3.dist-info/licenses/src/pip/_vendor/certifi/LICENSE
+11618cb6a975948679286b1211bd573c ./backend/venv/lib/python3.14/site-packages/pip/_vendor/certifi/LICENSE
+Hash 141643e11c48898150daa83802dbc65f:
+141643e11c48898150daa83802dbc65f ./backend/venv/lib/python3.14/site-packages/pip-25.3.dist-info/licenses/src/pip/_vendor/pkg_resources/LICENSE
+141643e11c48898150daa83802dbc65f ./backend/venv/lib/python3.14/site-packages/pip/_vendor/pkg_resources/LICENSE
+Hash 194577a7e20bdcc7afbb718f502c134c:
+194577a7e20bdcc7afbb718f502c134c ./frontend/.DS_Store
+194577a7e20bdcc7afbb718f502c134c ./backend/app/.DS_Store
+Hash 204c0612e40a4dd46012a78d02c80fb1:
+204c0612e40a4dd46012a78d02c80fb1 ./backend/venv/lib/python3.14/site-packages/pip-25.3.dist-info/licenses/src/pip/_vendor/idna/LICENSE.md
+204c0612e40a4dd46012a78d02c80fb1 ./backend/venv/lib/python3.14/site-packages/pip/_vendor/idna/LICENSE.md
+Hash 2ee41112a44fe7014dce33e26468ba93:
+2ee41112a44fe7014dce33e26468ba93 ./backend/venv/lib/python3.14/site-packages/pip-25.3.dist-info/licenses/src/pip/_vendor/packaging/LICENSE.APACHE
+2ee41112a44fe7014dce33e26468ba93 ./backend/venv/lib/python3.14/site-packages/pip/_vendor/packaging/LICENSE.APACHE
+Hash 34400b68072d710fecd0a2940a0d1658:
+34400b68072d710fecd0a2940a0d1658 ./backend/venv/lib/python3.14/site-packages/pip-25.3.dist-info/licenses/src/pip/_vendor/requests/LICENSE
+34400b68072d710fecd0a2940a0d1658 ./backend/venv/lib/python3.14/site-packages/pip/_vendor/requests/LICENSE
+Hash 36a13c90514e2899f1eba7f41c3ee592:
+36a13c90514e2899f1eba7f41c3ee592 ./backend/venv/lib/python3.14/site-packages/pip-25.3.dist-info/licenses/src/pip/_vendor/pygments/LICENSE
+36a13c90514e2899f1eba7f41c3ee592 ./backend/venv/lib/python3.14/site-packages/pip/_vendor/pygments/LICENSE
+Hash 41cd0a3ef4e9b13e70c3a23ccc3664c0:
+41cd0a3ef4e9b13e70c3a23ccc3664c0 ./backend/venv/bin/pip3.14
+41cd0a3ef4e9b13e70c3a23ccc3664c0 ./backend/venv/bin/pip3
+41cd0a3ef4e9b13e70c3a23ccc3664c0 ./backend/venv/bin/pip
+Hash 6572692148079ebbbd800be4b9f36c6d:
+6572692148079ebbbd800be4b9f36c6d ./backend/venv/lib/python3.14/site-packages/pip-25.3.dist-info/licenses/src/pip/_vendor/cachecontrol/LICENSE.txt
+6572692148079ebbbd800be4b9f36c6d ./backend/venv/lib/python3.14/site-packages/pip/_vendor/cachecontrol/LICENSE.txt
+Hash 74420fc3965c4558a4a1529e63c2867f:
+74420fc3965c4558a4a1529e63c2867f ./backend/venv/lib/python3.14/site-packages/pip-25.3.dist-info/licenses/src/pip/_vendor/truststore/LICENSE
+74420fc3965c4558a4a1529e63c2867f ./backend/venv/lib/python3.14/site-packages/pip/_vendor/truststore/LICENSE
+Hash 78e1c0248051c32a38a7f820c30bd7a5:
+78e1c0248051c32a38a7f820c30bd7a5 ./backend/venv/lib/python3.14/site-packages/pip-25.3.dist-info/licenses/src/pip/_vendor/resolvelib/LICENSE
+78e1c0248051c32a38a7f820c30bd7a5 ./backend/venv/lib/python3.14/site-packages/pip/_vendor/resolvelib/LICENSE
+Hash 7bef9bf4a8e4263634d0597e7ba100b8:
+7bef9bf4a8e4263634d0597e7ba100b8 ./backend/venv/lib/python3.14/site-packages/pip-25.3.dist-info/licenses/src/pip/_vendor/packaging/LICENSE.BSD
+7bef9bf4a8e4263634d0597e7ba100b8 ./backend/venv/lib/python3.14/site-packages/pip/_vendor/packaging/LICENSE.BSD
+Hash aaaaf0879d17df0110d1aa8c8c9f46f5:
+aaaaf0879d17df0110d1aa8c8c9f46f5 ./backend/venv/lib/python3.14/site-packages/pip-25.3.dist-info/licenses/src/pip/_vendor/tomli/LICENSE
+aaaaf0879d17df0110d1aa8c8c9f46f5 ./backend/venv/lib/python3.14/site-packages/pip-25.3.dist-info/licenses/src/pip/_vendor/tomli_w/LICENSE
+aaaaf0879d17df0110d1aa8c8c9f46f5 ./backend/venv/lib/python3.14/site-packages/pip/_vendor/tomli/LICENSE
+aaaaf0879d17df0110d1aa8c8c9f46f5 ./backend/venv/lib/python3.14/site-packages/pip/_vendor/tomli_w/LICENSE
+Hash aad69c93f605003e3342b174d9b0708c:
+aad69c93f605003e3342b174d9b0708c ./backend/venv/lib/python3.14/site-packages/pip-25.3.dist-info/licenses/src/pip/_vendor/pyproject_hooks/LICENSE
+aad69c93f605003e3342b174d9b0708c ./backend/venv/lib/python3.14/site-packages/pip/_vendor/pyproject_hooks/LICENSE
+Hash b5f0b94fbc94f5ad9ae4efcf8a778303:
+b5f0b94fbc94f5ad9ae4efcf8a778303 ./backend/venv/lib/python3.14/site-packages/pip-25.3.dist-info/licenses/src/pip/_vendor/rich/LICENSE
+b5f0b94fbc94f5ad9ae4efcf8a778303 ./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/LICENSE
+Hash bd2fa011a5e69d2b68df68fbc59f8be6:
+bd2fa011a5e69d2b68df68fbc59f8be6 ./backend/venv/lib/python3.14/site-packages/pip/_vendor/tomli/py.typed
+bd2fa011a5e69d2b68df68fbc59f8be6 ./backend/venv/lib/python3.14/site-packages/pip/_vendor/tomli_w/py.typed
+Hash c2823cb995439c984fd62a973d79815c:
+c2823cb995439c984fd62a973d79815c ./backend/venv/lib/python3.14/site-packages/pip-25.3.dist-info/licenses/src/pip/_vendor/urllib3/LICENSE.txt
+c2823cb995439c984fd62a973d79815c ./backend/venv/lib/python3.14/site-packages/pip/_vendor/urllib3/LICENSE.txt
+Hash cd9523181d9d4fbf7ffca52eaa2a5751:
+cd9523181d9d4fbf7ffca52eaa2a5751 ./backend/venv/lib/python3.14/site-packages/pip-25.3.dist-info/licenses/src/pip/_vendor/msgpack/COPYING
+cd9523181d9d4fbf7ffca52eaa2a5751 ./backend/venv/lib/python3.14/site-packages/pip/_vendor/msgpack/COPYING
+Hash d2794c0df5b907fdace235a619d80314:
+d2794c0df5b907fdace235a619d80314 ./backend/venv/lib/python3.14/site-packages/pip-25.3.dist-info/licenses/src/pip/_vendor/distro/LICENSE
+d2794c0df5b907fdace235a619d80314 ./backend/venv/lib/python3.14/site-packages/pip/_vendor/distro/LICENSE
+Hash d41d8cd98f00b204e9800998ecf8427e:
+d41d8cd98f00b204e9800998ecf8427e ./backend/app/recommendation/__init__.py
+d41d8cd98f00b204e9800998ecf8427e ./backend/app/ingestion/__init__.py
+d41d8cd98f00b204e9800998ecf8427e ./backend/app/core/__init__.py
+d41d8cd98f00b204e9800998ecf8427e ./backend/app/cache/__init__.py
+d41d8cd98f00b204e9800998ecf8427e ./backend/app/market_data/__init__.py
+d41d8cd98f00b204e9800998ecf8427e ./backend/app/__init__.py
+d41d8cd98f00b204e9800998ecf8427e ./backend/app/tax/__init__.py
+d41d8cd98f00b204e9800998ecf8427e ./backend/app/fundamental/__init__.py
+d41d8cd98f00b204e9800998ecf8427e ./backend/app/alerts/__init__.py
+d41d8cd98f00b204e9800998ecf8427e ./backend/app/ml/__init__.py
+d41d8cd98f00b204e9800998ecf8427e ./backend/app/db/__init__.py
+d41d8cd98f00b204e9800998ecf8427e ./backend/app/api/__init__.py
+d41d8cd98f00b204e9800998ecf8427e ./backend/app/api/routes/__init__.py
+d41d8cd98f00b204e9800998ecf8427e ./backend/app/data/__init__.py
+d41d8cd98f00b204e9800998ecf8427e ./backend/app/services/__init__.py
+d41d8cd98f00b204e9800998ecf8427e ./backend/app/analytics/__init__.py
+d41d8cd98f00b204e9800998ecf8427e ./backend/app/reports/__init__.py
+d41d8cd98f00b204e9800998ecf8427e ./backend/README.md
+d41d8cd98f00b204e9800998ecf8427e ./backend/venv/lib/python3.14/site-packages/pip-25.3.dist-info/REQUESTED
+d41d8cd98f00b204e9800998ecf8427e ./backend/venv/lib/python3.14/site-packages/pip/_internal/utils/__init__.py
+d41d8cd98f00b204e9800998ecf8427e ./backend/venv/lib/python3.14/site-packages/pip/_internal/operations/__init__.py
+d41d8cd98f00b204e9800998ecf8427e ./backend/venv/lib/python3.14/site-packages/pip/_internal/operations/build/__init__.py
+d41d8cd98f00b204e9800998ecf8427e ./backend/venv/lib/python3.14/site-packages/pip/_internal/resolution/legacy/__init__.py
+d41d8cd98f00b204e9800998ecf8427e ./backend/venv/lib/python3.14/site-packages/pip/_internal/resolution/__init__.py
+d41d8cd98f00b204e9800998ecf8427e ./backend/venv/lib/python3.14/site-packages/pip/_internal/resolution/resolvelib/__init__.py
+d41d8cd98f00b204e9800998ecf8427e ./backend/venv/lib/python3.14/site-packages/pip/_vendor/packaging/py.typed
+d41d8cd98f00b204e9800998ecf8427e ./backend/venv/lib/python3.14/site-packages/pip/_vendor/truststore/py.typed
+d41d8cd98f00b204e9800998ecf8427e ./backend/venv/lib/python3.14/site-packages/pip/_vendor/dependency_groups/py.typed
+d41d8cd98f00b204e9800998ecf8427e ./backend/venv/lib/python3.14/site-packages/pip/_vendor/distro/py.typed
+d41d8cd98f00b204e9800998ecf8427e ./backend/venv/lib/python3.14/site-packages/pip/_vendor/cachecontrol/py.typed
+d41d8cd98f00b204e9800998ecf8427e ./backend/venv/lib/python3.14/site-packages/pip/_vendor/idna/py.typed
+d41d8cd98f00b204e9800998ecf8427e ./backend/venv/lib/python3.14/site-packages/pip/_vendor/certifi/py.typed
+d41d8cd98f00b204e9800998ecf8427e ./backend/venv/lib/python3.14/site-packages/pip/_vendor/pyproject_hooks/py.typed
+d41d8cd98f00b204e9800998ecf8427e ./backend/venv/lib/python3.14/site-packages/pip/_vendor/rich/py.typed
+d41d8cd98f00b204e9800998ecf8427e ./backend/venv/lib/python3.14/site-packages/pip/_vendor/urllib3/contrib/__init__.py
+d41d8cd98f00b204e9800998ecf8427e ./backend/venv/lib/python3.14/site-packages/pip/_vendor/urllib3/contrib/_securetransport/__init__.py
+d41d8cd98f00b204e9800998ecf8427e ./backend/venv/lib/python3.14/site-packages/pip/_vendor/urllib3/packages/__init__.py
+d41d8cd98f00b204e9800998ecf8427e ./backend/venv/lib/python3.14/site-packages/pip/_vendor/urllib3/packages/backports/__init__.py
+d41d8cd98f00b204e9800998ecf8427e ./backend/venv/lib/python3.14/site-packages/pip/_vendor/resolvelib/py.typed
+d41d8cd98f00b204e9800998ecf8427e ./backend/venv/lib/python3.14/site-packages/pip/_vendor/platformdirs/py.typed
+d41d8cd98f00b204e9800998ecf8427e ./backend/data/cache/diskcache/cache.db-wal
+Hash ea4f5a41454746a9ed111e3d8723d17a:
+ea4f5a41454746a9ed111e3d8723d17a ./backend/venv/lib/python3.14/site-packages/pip-25.3.dist-info/licenses/src/pip/_vendor/platformdirs/LICENSE
+ea4f5a41454746a9ed111e3d8723d17a ./backend/venv/lib/python3.14/site-packages/pip/_vendor/platformdirs/LICENSE
+Hash f6a11430d5cd6e2cd3832ee94f22ddfc:
+f6a11430d5cd6e2cd3832ee94f22ddfc ./backend/venv/lib/python3.14/site-packages/pip-25.3.dist-info/licenses/src/pip/_vendor/distlib/LICENSE.txt
+f6a11430d5cd6e2cd3832ee94f22ddfc ./backend/venv/lib/python3.14/site-packages/pip/_vendor/distlib/LICENSE.txt
+Hash faadaedca9251a90b205c9167578ce91:
+faadaedca9251a90b205c9167578ce91 ./backend/venv/lib/python3.14/site-packages/pip-25.3.dist-info/licenses/src/pip/_vendor/packaging/LICENSE
+faadaedca9251a90b205c9167578ce91 ./backend/venv/lib/python3.14/site-packages/pip/_vendor/packaging/LICENSE
+
+── 6. PYTHON UNUSED CODE (vulture) ──────────
+backend/app/api/dependencies.py:1: unused import 'status' (90% confidence)
+backend/app/core/security.py:8: unused import 'hmac' (90% confidence)
+backend/app/fundamental/fetcher.py:252: unused variable 'g' (100% confidence)
+backend/app/recommendation/engine.py:771: unreachable code after 'return' (100% confidence)
+backend/app/reports/generator.py:20: unused import 'TA_CENTER' (90% confidence)
+backend/app/reports/generator.py:20: unused import 'TA_JUSTIFY' (90% confidence)
+backend/app/reports/generator.py:20: unused import 'TA_LEFT' (90% confidence)
+backend/app/reports/generator.py:24: unused import 'KeepTogether' (90% confidence)
+backend/app/services/instrument_service.py:4: unused import 'price_cache' (90% confidence)
+
+── 7. UNUSED NPM PACKAGES (depcheck) ────────
+Traceback (most recent call last):
+  File "<string>", line 4, in <module>
+  File "/opt/homebrew/Cellar/python@3.11/3.11.15_1/Frameworks/Python.framework/Versions/3.11/lib/python3.11/json/__init__.py", line 293, in load
+    return loads(fp.read(),
+                 ^^^^^^^^^
+KeyboardInterrupt
