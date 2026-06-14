@@ -85,7 +85,11 @@ def generate_prediction(symbol: str, horizon: int = 30) -> Dict:
     start  = time.time()
 
     # ── 1. Cache check ────────────────────────────────────────────
-    cached = pred_repo.get_prediction(symbol, horizon, CACHE_TTL_HOURS)
+    try:
+        cached = pred_repo.get_prediction(symbol, horizon, CACHE_TTL_HOURS)
+    except Exception as e:
+        logger.warning(f"Prediction cache read failed (non-fatal): {e}")
+        cached = None
     if cached:
         logger.info(f"✅ Cache hit for {symbol}")
         return {**cached, "from_cache": True}

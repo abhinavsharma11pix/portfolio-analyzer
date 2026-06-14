@@ -1,16 +1,11 @@
 """
 migrations.py — Complete file.
-Runs on every server start.
-Creates all tables if they don't exist yet.
-Works with both SQLite (local) and PostgreSQL (Render).
+Pure SQLite. Runs on every server start.
+Creates all tables if they don't exist yet — safe to run repeatedly.
 """
 import logging
 
 logger = logging.getLogger(__name__)
-
-# ── Schema — all tables ───────────────────────────────────────
-# Written in SQLite syntax.
-# database.py auto-converts to PostgreSQL when needed.
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
@@ -106,48 +101,45 @@ CREATE TABLE IF NOT EXISTS trades (
     created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- ML prediction cache — fixes "no such table: predictions"
+CREATE TABLE IF NOT EXISTS predictions (
+    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    symbol             TEXT    NOT NULL,
+    horizon_days       INTEGER NOT NULL DEFAULT 30,
+    current_price      REAL,
+    predicted_prices   TEXT,
+    confidence_lower   TEXT,
+    confidence_upper   TEXT,
+    reliability_score  REAL,
+    reliability_grade  TEXT,
+    models_used        TEXT,
+    model_weights      TEXT,
+    created_at         TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE INDEX IF NOT EXISTS idx_alert_rules_symbol    ON alert_rules(symbol);
 CREATE INDEX IF NOT EXISTS idx_alert_rules_user      ON alert_rules(user_id);
 CREATE INDEX IF NOT EXISTS idx_alert_history_read    ON alert_history(is_read);
 CREATE INDEX IF NOT EXISTS idx_trades_user           ON trades(user_id, symbol);
 CREATE INDEX IF NOT EXISTS idx_portfolio_holdings    ON portfolio_holdings(portfolio_id);
 CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user   ON refresh_tokens(user_id);
+CREATE INDEX IF NOT EXISTS idx_predictions_lookup    ON predictions(symbol, horizon_days, created_at);
 """
 
 
 def run_migrations() -> None:
     """
-    Run all migrations.
-    Called once on server startup from main.py lifespan.
+    Run all migrations. Called once on server startup from main.py lifespan.
     Safe to run multiple times — uses CREATE IF NOT EXISTS everywhere.
     """
-    from app.core.database import get_connection, USE_POSTGRES
+    from app.core.database import get_connection
 
     try:
         conn = get_connection()
-
-        if USE_POSTGRES:
-            # PostgreSQL: run each statement one at a time
-            statements = [s.strip() for s in SCHEMA.split(";") if s.strip()]
-            for stmt in statements:
-                try:
-                    conn.execute(stmt)
-                    conn.commit()
-                except Exception as e:
-                    err_msg = str(e).lower()
-                    # "already exists" errors are fine — table/index was already there
-                    if "already exists" in err_msg or "duplicate" in err_msg:
-                        pass
-                    else:
-                        logger.warning(f"Migration warning: {e}")
-        else:
-            # SQLite: executescript handles the whole thing at once
-            conn.executescript(SCHEMA)
-            conn.commit()
-
+        conn.executescript(SCHEMA)
+        conn.commit()
         conn.close()
         logger.info("✅ DB migrations complete")
-
     except Exception as e:
         logger.error(f"❌ DB migration failed: {e}")
         raise
