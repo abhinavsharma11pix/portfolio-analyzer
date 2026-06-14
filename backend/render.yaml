@@ -3,15 +3,23 @@ services:
     name: portfolio-ai-backend
     runtime: python
     rootDir: backend
+
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+
     envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.11
+
       - key: ENVIRONMENT
         value: production
+
       - key: JWT_SECRET_KEY
         generateValue: true
+
       - key: CORS_ORIGINS
         value: https://portfolio-ai.vercel.app
+
     disk:
       name: portfolio-data
       mountPath: /data
