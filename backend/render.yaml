@@ -19,8 +19,3 @@ services:
 
       - key: CORS_ORIGINSß
         value: https://portfolio-ai.vercel.app
-
-    disk:
-      name: portfolio-data
-      mountPath: /data
-      sizeGB: 1
