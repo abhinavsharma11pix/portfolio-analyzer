@@ -9,3 +9,5 @@ backend/uploads/
 **/*.pyc
 .DS_Store
 *.log
+audit_project.sh
+audit_report.txt
