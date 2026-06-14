@@ -17,7 +17,7 @@ services:
       - key: JWT_SECRET_KEY
         generateValue: true
 
-      - key: CORS_ORIGINS
+      - key: CORS_ORIGINSß
         value: https://portfolio-ai.vercel.app
 
     disk:
