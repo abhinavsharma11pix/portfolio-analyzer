@@ -18,7 +18,7 @@ interface NavProps {
 
 /* ── Market status bar (separate component) ── */
 const MarketBar = memo(function MarketBar({
-  connected, lastUpdated, nextRefresh
+  connected, nextRefresh
 }: { connected?: boolean; lastUpdated?: string|null; nextRefresh?: number }) {
   const [time, setTime] = useState(new Date())
 

@@ -1,4 +1,4 @@
-import { useState, useEffect, memo } from 'react'
+import { useState, useEffect} from 'react'
 import axios from 'axios'
 import { Bell, Plus, Trash2, X, Check, AlertTriangle, TrendingDown } from 'lucide-react'
 
@@ -36,7 +36,7 @@ export default function AlertManager({ holdings, onClose }: Props) {
   const [rules,     setRules]     = useState<AlertRule[]>([])
   const [history,   setHistory]   = useState<AlertHistoryItem[]>([])
   const [unread,    setUnread]    = useState(0)
-  const [loading,   setLoading]   = useState(false)
+  // const [loading,   setLoading]   = useState(false)
   const [form,      setForm]      = useState({ symbol:'', alert_type:'price_below', threshold:'' })
   const [adding,    setAdding]    = useState(false)
   const [showForm,  setShowForm]  = useState(false)

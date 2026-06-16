@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, memo, lazy, Suspense, useEffect } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link} from 'react-router-dom'
 import { TrendingUp, TrendingDown, FileText, Save } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 
@@ -20,7 +20,7 @@ import {
 } from '../components/ui/Skeleton'
 import { useWebSocket }  from '../hooks/useWebSocket'
 import { portfolioApi }  from '../services/api'
-import { useAuth }       from '../context/AuthContext'
+// import { useAuth }       from '../context/AuthContext'
 
 // Stage 2 — lazy
 const RiskMetrics       = lazy(() => import('../components/RiskMetrics'))
@@ -116,8 +116,8 @@ function useAdvancedMetrics(holdings: Holding[], riskMetrics: any, enabled: bool
 
 /* ── Dashboard ── */
 export default function Dashboard() {
-  const navigate         = useNavigate()
-  const { isLoggedIn }   = useAuth()
+  // const navigate         = useNavigate()
+  // const { isLoggedIn }   = useAuth()
 
   const [portfolioData,  setPortfolioData]  = useState<PortfolioData | null>(null)
   const [showSave,       setShowSave]       = useState(false)

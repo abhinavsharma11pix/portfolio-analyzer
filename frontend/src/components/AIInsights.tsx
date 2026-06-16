@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import axios from 'axios'
-import { Brain, TrendingUp, AlertTriangle, CheckCircle, Info } from 'lucide-react'
+import { Brain,  CheckCircle } from 'lucide-react'
 
 interface Insight {
   type: string

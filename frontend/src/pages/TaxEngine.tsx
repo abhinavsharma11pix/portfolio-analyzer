@@ -4,7 +4,7 @@ import axios from 'axios'
 import {
   Calculator, TrendingDown, TrendingUp,
   AlertTriangle, CheckCircle, Info,
-  ChevronDown, ChevronUp, ArrowRight
+  ChevronDown, ChevronUp
 } from 'lucide-react'
 
 interface TaxResult {
@@ -102,7 +102,7 @@ const HarvestCard = memo(function HarvestCard({ h }: { h: HarvestSuggestion }) {
 
 export default function TaxEngine() {
   const navigate   = useNavigate()
-  const [holdings, setHoldings] = useState<any[]>([])
+  // const [holdings, setHoldings] = useState<any[]>([])
   const [result,   setResult]   = useState<TaxResult | null>(null)
   const [loading,  setLoading]  = useState(false)
   const [error,    setError]    = useState<string | null>(null)
