@@ -5,6 +5,7 @@ import {
 } from 'lucide-react'
 import { RiskMetricsSkeleton } from './ui/Skeleton'
 import Tooltip from './ui/Tooltip'
+import { API_BASE } from '../config/api'
 
 /* ── Types ── */
 interface RiskData {
@@ -99,7 +100,7 @@ const RiskMetrics = memo(function RiskMetrics({ holdings, onRiskLoad, preloadedD
     setLoading(true)
     setError(null)
 
-    axios.post('http://localhost:8000/api/portfolio/risk', { holdings })
+    axios.post(`${API_BASE}/api/portfolio/risk`, { holdings })
       .then(res => {
         if (!cancelled) {
           setRiskData(res.data)

@@ -1,7 +1,7 @@
 /**
- * AI Investment Advisor — Recommend.tsx
- * Full 6-step wizard + results with whole-share display
- * Whole shares only: "3 shares × Rs.1,160 = Rs.3,480"
+ * pages/Recommend.tsx — Complete file.
+ * Fixed: const API = `${API_BASE}` -> import API_BASE from config
+ * (all other fixes — n_sectors, optional chaining, unused imports — already applied)
  */
 import {
   useState, useCallback, memo,
@@ -15,8 +15,7 @@ import {
   Clock, Briefcase, ChevronDown, ChevronUp,
   ChevronLeft,
 } from 'lucide-react'
-
-const API = 'http://localhost:8000'
+import { API_BASE } from '../config/api'
 
 // ── Types ─────────────────────────────────────────────────────
 
@@ -67,7 +66,7 @@ interface RecommendationResult {
   data_note:             string
   score_breakdown?:      Record<string, number>
   warnings?:             string[]
-  n_sectors?:            number   // fix: add missing field
+  n_sectors?:            number
 }
 
 // ── Constants ─────────────────────────────────────────────────
@@ -143,7 +142,6 @@ function ScoreBar({ value, max = 100, color = 'bg-blue-500' }: {
 
 // ── Step components ───────────────────────────────────────────
 
-// fix: removed unused `total` prop
 function StepIndicator({ current }: { current: number }) {
   const labels = ['Capital', 'Market', 'Horizon', 'Goal', 'Sectors', 'Stocks']
   return (
@@ -526,7 +524,6 @@ const StepStockCount = memo(function StepStockCount({
 
 // ── Loading screen ────────────────────────────────────────────
 
-// fix: removed unused `amount` prop
 function LoadingScreen() {
   return (
     <div className="max-w-xl mx-auto text-center py-16">
@@ -573,13 +570,11 @@ function ResultScreen({
   const uninvestedCash = result.uninvested_cash ?? (amount - totalInvested)
   const investedPct    = amount > 0 ? Math.round((totalInvested / amount) * 100) : 0
 
-  // fix: use n_sectors from result if available, else fall back to sector_allocation length
   const nSectors = result.n_sectors ?? result.sector_allocation.length
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">
 
-      {/* Header */}
       <div className="flex items-start justify-between">
         <div>
           <div className="flex items-center gap-2 mb-1">
@@ -602,7 +597,6 @@ function ResultScreen({
         </button>
       </div>
 
-      {/* Capital summary */}
       <div className="card p-5">
         <div className="grid grid-cols-3 gap-4">
           <div>
@@ -647,7 +641,6 @@ function ResultScreen({
         )}
       </div>
 
-      {/* Score cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
           {
@@ -687,7 +680,6 @@ function ResultScreen({
         ))}
       </div>
 
-      {/* AI Commentary */}
       {result.ai_commentary && (
         <div className="card p-5 border-l-4 border-blue-600">
           <div className="flex items-center gap-2 mb-2">
@@ -698,7 +690,6 @@ function ResultScreen({
         </div>
       )}
 
-      {/* Strengths + Risk Warnings */}
       {(result.strengths?.length > 0 || result.risk_warnings?.length > 0) && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {result.strengths?.length > 0 && (
@@ -734,7 +725,6 @@ function ResultScreen({
         </div>
       )}
 
-      {/* fix: safe optional chaining on warnings */}
       {(result.warnings?.length ?? 0) > 0 && (
         <div className="bg-orange-950/20 border border-orange-800/40 rounded-xl p-4">
           <div className="flex items-center gap-2 mb-2">
@@ -747,7 +737,6 @@ function ResultScreen({
         </div>
       )}
 
-      {/* Stock list */}
       <div>
         <h3 className="text-white font-semibold mb-3 flex items-center gap-2">
           Stock Allocation
@@ -872,7 +861,6 @@ function ResultScreen({
         </div>
       </div>
 
-      {/* Uninvested cash callout */}
       {uninvestedCash > 100 && (
         <div className="card p-4 border-yellow-800/40 bg-yellow-950/10">
           <div className="flex items-start justify-between gap-3">
@@ -895,7 +883,6 @@ function ResultScreen({
         </div>
       )}
 
-      {/* Sector allocation */}
       <div className="card p-5">
         <h4 className="text-white font-semibold text-sm mb-4 flex items-center gap-2">
           <PieChart size={14} className="text-blue-400" />
@@ -919,7 +906,6 @@ function ResultScreen({
         </div>
       </div>
 
-      {/* Score breakdown */}
       {result.score_breakdown && Object.keys(result.score_breakdown).length > 0 && (
         <div className="card p-5">
           <button
@@ -952,13 +938,11 @@ function ResultScreen({
         </div>
       )}
 
-      {/* Data note */}
       <div className="flex items-start gap-2 px-1">
         <Info size={12} className="text-gray-700 shrink-0 mt-0.5" />
         <p className="text-gray-700 text-xs">{result.data_note}</p>
       </div>
 
-      {/* Profile explanation */}
       <div className="card p-4">
         <div className="flex items-center gap-2 mb-2">
           <Shield size={14} className={PROFILE_COLOR[result.profile.category] ?? 'text-gray-400'} />
@@ -972,7 +956,6 @@ function ResultScreen({
         <p className="text-gray-400 text-xs leading-relaxed">{result.profile.explanation}</p>
       </div>
 
-      {/* CTAs */}
       <div className="flex gap-3">
         <button
           onClick={onReset}
@@ -1015,7 +998,7 @@ export default function Recommend() {
     setError(null)
     try {
       const res = await axios.post(
-        `${API}/api/recommendation/generate`,
+        `${API_BASE}/api/recommendation/generate`,
         {
           amount:            numAmount,
           goal,
@@ -1080,7 +1063,6 @@ export default function Recommend() {
           <LoadingScreen />
         ) : (
           <>
-            {/* fix: removed unused `total` prop */}
             <StepIndicator current={step} />
 
             {error && (

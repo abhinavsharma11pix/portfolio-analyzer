@@ -2,6 +2,7 @@ import { useState, useEffect, memo } from 'react'
 import axios from 'axios'
 import { Activity } from 'lucide-react'
 import { MetricCardSkeleton } from './ui/Skeleton'
+import { API_BASE } from '../config/api'
 
 interface AdvancedData {
   var_95: number; var_99: number; cvar_95: number; alpha: number
@@ -67,7 +68,7 @@ const AdvancedMetrics = memo(function AdvancedMetrics({
     setLoading(true)
     setError(null)
 
-    axios.post('http://localhost:8000/api/analytics/advanced', {
+    axios.post(`${API_BASE}/api/analytics/advanced`, {
       holdings,
       risk_metrics: riskMetrics,
     })

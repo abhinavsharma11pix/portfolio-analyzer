@@ -6,6 +6,7 @@ import {
   ReferenceLine, CartesianGrid
 } from 'recharts'
 import { Brain, ChevronDown, ChevronUp, Zap, Shield } from 'lucide-react'
+import { API_BASE } from '../config/api'
 
 /* ── Types ── */
 interface ModelBreakdown { price_30d: number; change_pct: number; model_name: string; weight: number }
@@ -62,7 +63,7 @@ export default function PredictionChart({ symbol, currency }: { symbol: string; 
     if (loading) return
     setLoading(true); setError(null)
     try {
-      const res = await axios.get(`http://localhost:8000/api/portfolio/predict/${symbol}`)
+      const res = await axios.get(`${API_BASE}/api/portfolio/predict/${symbol}`)
       setData(res.data); setExpanded(true)
     } catch (e: any) {
       setError(e.response?.data?.detail || 'Prediction failed')

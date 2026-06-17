@@ -5,6 +5,7 @@ import {
   TrendingDown, TrendingUp, ChevronDown, ChevronUp
 } from 'lucide-react'
 import { TodayDashboardSkeleton } from './ui/Skeleton'
+import { API_BASE } from '../config/api'
 
 /* ── Types ── */
 interface Decision {
@@ -176,7 +177,7 @@ const TodayDashboard = memo(function TodayDashboard({
     setLoading(true)
     setError(null)
 
-    axios.post('http://localhost:8000/api/portfolio/decisions', {
+    axios.post(`${API_BASE}/api/portfolio/decisions`, {
       holdings,
       risk_metrics:     riskMetrics,
       advanced_metrics: advancedMetrics ?? {},

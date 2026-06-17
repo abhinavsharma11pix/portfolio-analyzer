@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import axios from 'axios'
 import { Brain,  CheckCircle } from 'lucide-react'
+import { API_BASE } from '../config/api'
 
 interface Insight {
   type: string
@@ -61,7 +62,7 @@ export default function AIInsights({ holdings, riskMetrics, summary }: Props) {
       setLoading(true)
       setError(null)
       try {
-        const res = await axios.post('http://localhost:8000/api/portfolio/insights', {
+        const res = await axios.post(`${API_BASE}/api/portfolio/insights`, {
           holdings,
           risk_metrics: riskMetrics,
           summary

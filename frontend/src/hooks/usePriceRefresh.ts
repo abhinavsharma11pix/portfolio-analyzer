@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import axios from 'axios'
+import { API_BASE } from '../config/api'
 
 interface MarketStatus {
   nse_open: boolean
@@ -19,7 +20,7 @@ export function usePriceRefresh(symbols: string[]) {
 
   const fetchMarketStatus = useCallback(async () => {
     try {
-      const res = await axios.get('http://localhost:8000/api/market/status')
+      const res = await axios.get(`${API_BASE}/api/market/status`)
       setMarketStatus(res.data)
     } catch { /* silent */ }
   }, [])
@@ -29,7 +30,7 @@ export function usePriceRefresh(symbols: string[]) {
     setIsRefreshing(true)
     try {
       const res = await axios.get(
-        `http://localhost:8000/api/prices/refresh?symbols=${symbols.join(',')}`
+        `${API_BASE}/api/prices/refresh?symbols=${symbols.join(',')}`
       )
       if (res.data.prices) {
         setPrices(res.data.prices)

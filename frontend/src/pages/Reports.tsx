@@ -1,3 +1,7 @@
+/**
+ * pages/Reports.tsx — Complete file.
+ * Fixed: both axios.post(localhost:8000) calls -> API_BASE
+ */
 import { useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import axios from 'axios'
@@ -6,6 +10,7 @@ import {
   BarChart3, Shield, Calculator, AlertTriangle,
   Eye, Sparkles
 } from 'lucide-react'
+import { API_BASE } from '../config/api'
 
 interface ReportConfig {
   portfolio_name: string
@@ -53,7 +58,7 @@ export default function Reports({
     if (config.include_tax && holdings.length > 0) {
       try {
         const taxRes = await axios.post(
-          'http://localhost:8000/api/tax/calculate',
+          `${API_BASE}/api/tax/calculate`,
           { holdings },
           { timeout: 20000 }
         )
@@ -63,7 +68,7 @@ export default function Reports({
 
     try {
       const res = await axios.post(
-        'http://localhost:8000/api/reports/generate',
+        `${API_BASE}/api/reports/generate`,
         {
           holdings,
           summary,
@@ -108,7 +113,6 @@ export default function Reports({
     <div className="min-h-screen bg-gray-950">
       <div className="max-w-3xl mx-auto px-4 py-10">
 
-        {/* Header */}
         <div className="mb-8">
           <button
             onClick={() => navigate('/dashboard')}
@@ -129,7 +133,6 @@ export default function Reports({
           </div>
         </div>
 
-        {/* What's included */}
         <div className="card p-6 mb-6">
           <h2 className="text-white font-semibold text-sm mb-4">
             What's included in your report
@@ -147,7 +150,6 @@ export default function Reports({
           </div>
         </div>
 
-        {/* Config */}
         <div className="card p-6 mb-6 space-y-4">
           <h2 className="text-white font-semibold text-sm mb-2">Report Options</h2>
 
@@ -183,7 +185,6 @@ export default function Reports({
           </label>
         </div>
 
-        {/* Holdings preview */}
         {hasHoldings && (
           <div className="card p-4 mb-6">
             <p className="text-gray-500 text-xs font-medium uppercase tracking-wide mb-3">
@@ -206,7 +207,6 @@ export default function Reports({
           </div>
         )}
 
-        {/* Error */}
         {error && (
           <div className="flex items-start gap-2 text-red-400 text-sm bg-red-950/30 border border-red-800 rounded-xl px-4 py-3 mb-4">
             <AlertTriangle size={15} className="shrink-0 mt-0.5" />
@@ -214,7 +214,6 @@ export default function Reports({
           </div>
         )}
 
-        {/* Generate button */}
         {!hasHoldings ? (
           <div className="card p-8 text-center">
             <FileText size={40} className="text-gray-700 mx-auto mb-3" />
@@ -254,7 +253,6 @@ export default function Reports({
           </button>
         )}
 
-        {/* Sample note */}
         <div className="mt-4 bg-gray-800/30 border border-gray-700/40 rounded-xl p-4">
           <div className="flex items-start gap-2">
             <AlertTriangle size={13} className="text-yellow-400 shrink-0 mt-0.5" />

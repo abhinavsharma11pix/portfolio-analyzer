@@ -1,6 +1,12 @@
-import { useState, useEffect} from 'react'
+/**
+ * components/AlertManager.tsx — Complete file.
+ * Fixed: hardcoded axios calls to localhost:8000 -> API_BASE
+ * Fixed: unused 'memo' import, unused 'loading'/'setLoading' state
+ */
+import { useState, useEffect } from 'react'
 import axios from 'axios'
 import { Bell, Plus, Trash2, X, Check, AlertTriangle, TrendingDown } from 'lucide-react'
+import { API_BASE } from '../config/api'
 
 interface AlertRule {
   id: number; symbol: string; alert_type: string
@@ -14,10 +20,10 @@ interface AlertHistoryItem {
 }
 
 const ALERT_TYPES = [
-  { value: 'price_above',    label: 'Price above',       unit: '₹' },
-  { value: 'price_below',    label: 'Price below',       unit: '₹' },
-  { value: 'price_up_pct',   label: 'Up % from buy',     unit: '%' },
-  { value: 'price_down_pct', label: 'Down % from buy',   unit: '%' },
+  { value: 'price_above',    label: 'Price above',     unit: '₹' },
+  { value: 'price_below',    label: 'Price below',     unit: '₹' },
+  { value: 'price_up_pct',   label: 'Up % from buy',   unit: '%' },
+  { value: 'price_down_pct', label: 'Down % from buy', unit: '%' },
 ]
 
 const SEVERITY_COLOR: Record<string, string> = {
@@ -36,7 +42,6 @@ export default function AlertManager({ holdings, onClose }: Props) {
   const [rules,     setRules]     = useState<AlertRule[]>([])
   const [history,   setHistory]   = useState<AlertHistoryItem[]>([])
   const [unread,    setUnread]    = useState(0)
-  // const [loading,   setLoading]   = useState(false)
   const [form,      setForm]      = useState({ symbol:'', alert_type:'price_below', threshold:'' })
   const [adding,    setAdding]    = useState(false)
   const [showForm,  setShowForm]  = useState(false)
@@ -47,13 +52,13 @@ export default function AlertManager({ holdings, onClose }: Props) {
   }, [])
 
   const loadRules = () => {
-    axios.get('http://localhost:8000/api/alerts/rules')
+    axios.get(`${API_BASE}/api/alerts/rules`)
       .then(r => setRules(r.data.rules || []))
       .catch(() => {})
   }
 
   const loadHistory = () => {
-    axios.get('http://localhost:8000/api/alerts/history?limit=30')
+    axios.get(`${API_BASE}/api/alerts/history?limit=30`)
       .then(r => {
         setHistory(r.data.alerts || [])
         setUnread(r.data.unread_count || 0)
@@ -65,7 +70,7 @@ export default function AlertManager({ holdings, onClose }: Props) {
     if (!form.symbol || !form.threshold) return
     setAdding(true)
     try {
-      await axios.post('http://localhost:8000/api/alerts/rules', {
+      await axios.post(`${API_BASE}/api/alerts/rules`, {
         symbol:     form.symbol.toUpperCase(),
         alert_type: form.alert_type,
         threshold:  Number(form.threshold),
@@ -79,13 +84,13 @@ export default function AlertManager({ holdings, onClose }: Props) {
 
   const deleteRule = async (id: number) => {
     try {
-      await axios.delete(`http://localhost:8000/api/alerts/rules/${id}`)
+      await axios.delete(`${API_BASE}/api/alerts/rules/${id}`)
       loadRules()
     } catch {}
   }
 
   const markAllRead = async () => {
-    await axios.post('http://localhost:8000/api/alerts/mark-read', { all: true })
+    await axios.post(`${API_BASE}/api/alerts/mark-read`, { all: true })
     loadHistory()
   }
 
@@ -95,7 +100,6 @@ export default function AlertManager({ holdings, onClose }: Props) {
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-start justify-end">
       <div className="bg-gray-900 border-l border-gray-700 w-full max-w-md h-full overflow-y-auto shadow-2xl">
 
-        {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-800 sticky top-0 bg-gray-900 z-10">
           <div className="flex items-center gap-2">
             <Bell size={17} className="text-blue-400" />
@@ -111,7 +115,6 @@ export default function AlertManager({ holdings, onClose }: Props) {
           </button>
         </div>
 
-        {/* Tabs */}
         <div className="flex gap-1 p-3 bg-gray-800/50">
           {(['rules','history'] as const).map(t => (
             <button key={t} onClick={() => setTab(t)}
@@ -132,7 +135,6 @@ export default function AlertManager({ holdings, onClose }: Props) {
 
           {tab === 'rules' && (
             <>
-              {/* Add rule button */}
               <button
                 onClick={() => setShowForm(!showForm)}
                 className="w-full flex items-center justify-center gap-2 border border-dashed border-blue-700/60 text-blue-400 hover:bg-blue-950/20 py-3 rounded-xl text-sm transition-colors"
@@ -140,7 +142,6 @@ export default function AlertManager({ holdings, onClose }: Props) {
                 <Plus size={15} /> Add Alert Rule
               </button>
 
-              {/* Add form */}
               {showForm && (
                 <div className="card p-4 space-y-3">
                   <div>
@@ -196,7 +197,6 @@ export default function AlertManager({ holdings, onClose }: Props) {
                 </div>
               )}
 
-              {/* Rules list */}
               {rules.length === 0 ? (
                 <div className="text-center py-8">
                   <Bell size={32} className="text-gray-700 mx-auto mb-2" />

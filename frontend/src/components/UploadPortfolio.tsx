@@ -15,6 +15,7 @@ import {
 } from 'lucide-react'
 
 import axios from 'axios'
+import { API_BASE } from '../config/api'
 
 interface Holding {
   symbol: string
@@ -166,7 +167,7 @@ const UploadPortfolio = memo(function UploadPortfolio({
       try {
         const res =
           await axios.post<UploadResult>(
-            'http://localhost:8000/api/portfolio/upload',
+            `${API_BASE}/api/portfolio/upload`,
             formData,
             {
               headers: {
@@ -567,13 +568,13 @@ const UploadPortfolio = memo(function UploadPortfolio({
           </p>
 
           <a
-            href="http://localhost:8000/api/portfolio/template"
-            download
-            onClick={(
-              e: React.MouseEvent<HTMLAnchorElement>
-            ) => e.stopPropagation()}
-            className="flex items-center gap-1.5 text-xs bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-lg transition-colors"
-          >
+              href={`${API_BASE}/api/portfolio/template`}
+              download
+              onClick={(
+                e: React.MouseEvent<HTMLAnchorElement>
+              ) => e.stopPropagation()}
+              className="flex items-center gap-1.5 text-xs bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-lg transition-colors"
+            >
             <Download size={11} />
             Template
           </a>

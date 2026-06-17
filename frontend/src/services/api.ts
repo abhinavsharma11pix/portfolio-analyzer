@@ -1,62 +1,176 @@
+/**
+ * services/api.ts — Complete file.
+ * Single axios instance, all requests go through API_BASE.
+ * Attaches JWT access token automatically. Auto-refreshes on 401.
+ */
+
 import axios from 'axios'
-export const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+import type {
+  AxiosInstance,
+  InternalAxiosRequestConfig,
+} from 'axios'
 
-const BASE = 'http://localhost:8000'
+import { API_BASE } from '../config/api'
 
-export const api = axios.create({
-  baseURL: BASE,
-  timeout: 90_000,
+export const apiClient: AxiosInstance = axios.create({
+  baseURL: API_BASE,
+  timeout: 30000,
 })
 
-// All API calls — single source of truth
+// ── Attach access token to every outgoing request ──────────────
+apiClient.interceptors.request.use(
+  (config: InternalAxiosRequestConfig) => {
+    const token = localStorage.getItem('pa_access_token')
+
+    if (token) {
+      config.headers = config.headers ?? {}
+      config.headers.Authorization = `Bearer ${token}`
+    }
+
+    return config
+  }
+)
+
+// ── Auto-refresh access token on 401 ───────────────────────────
+let isRefreshing = false
+let pendingQueue: Array<() => void> = []
+
+apiClient.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    const original = error.config
+
+    if (
+      error.response?.status === 401 &&
+      original &&
+      !original._retry
+    ) {
+      original._retry = true
+
+      const refreshToken =
+        localStorage.getItem('pa_refresh_token')
+
+      if (!refreshToken) {
+        return Promise.reject(error)
+      }
+
+      if (isRefreshing) {
+        return new Promise((resolve) => {
+          pendingQueue.push(() =>
+            resolve(apiClient(original))
+          )
+        })
+      }
+
+      isRefreshing = true
+
+      try {
+        const res = await axios.post(
+          `${API_BASE}/api/auth/refresh`,
+          {
+            refresh_token: refreshToken,
+          }
+        )
+
+        localStorage.setItem(
+          'pa_access_token',
+          res.data.access_token
+        )
+
+        if (res.data.refresh_token) {
+          localStorage.setItem(
+            'pa_refresh_token',
+            res.data.refresh_token
+          )
+        }
+
+        pendingQueue.forEach((cb) => cb())
+        pendingQueue = []
+
+        return apiClient(original)
+      } catch (refreshError) {
+        localStorage.removeItem('pa_access_token')
+        localStorage.removeItem('pa_refresh_token')
+
+        return Promise.reject(refreshError)
+      } finally {
+        isRefreshing = false
+      }
+    }
+
+    return Promise.reject(error)
+  }
+)
+
+// ── Portfolio API ──────────────────────────────────────────────
 export const portfolioApi = {
-  upload: (formData: FormData) =>
-    api.post('/api/portfolio/upload', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    }),
+  upload: (file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+
+    return apiClient.post(
+      '/api/portfolio/upload',
+      form,
+      {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      }
+    )
+  },
 
   getRisk: (holdings: any[]) =>
-    api.post('/api/portfolio/risk', { holdings }),
-
-  getInsights: (holdings: any[], riskMetrics: any, summary: any) =>
-    api.post('/api/portfolio/insights', { holdings, risk_metrics: riskMetrics, summary }),
-
-  getDecisions: (holdings: any[], riskMetrics: any, advancedMetrics: any, summary: any) =>
-    api.post('/api/portfolio/decisions', {
+    apiClient.post('/api/analytics/risk', {
       holdings,
-      risk_metrics:     riskMetrics,
-      advanced_metrics: advancedMetrics ?? {},
-      predictions:      {},
-      summary:          summary ?? {},
     }),
 
-  getAdvanced: (holdings: any[], riskMetrics: any) =>
-    api.post('/api/analytics/advanced', { holdings, risk_metrics: riskMetrics }),
+  getAdvanced: (
+    holdings: any[],
+    riskMetrics: any
+  ) =>
+    apiClient.post(
+      '/api/analytics/advanced',
+      {
+        holdings,
+        risk_metrics: riskMetrics,
+      }
+    ),
 
-  getBenchmark: (holdings: any[]) =>
-    api.post('/api/analytics/benchmark', { holdings }),
+  predict: (
+    symbol: string,
+    horizonDays = 30
+  ) =>
+    apiClient.get(
+      `/api/portfolio/predict/${symbol}`,
+      {
+        params: {
+          horizon_days: horizonDays,
+        },
+      }
+    ),
 
-  simulate: (holdings: any[]) =>
-    api.post('/api/analytics/simulate', { holdings }),
+  simulate: (payload: any) =>
+    apiClient.post(
+      '/api/analytics/simulate',
+      payload
+    ),
 
-  predict: (symbol: string) =>
-    api.get(`/api/portfolio/predict/${symbol}`),
+  savePortfolio: (
+    name: string,
+    holdings: any[],
+    summary: any
+  ) =>
+    apiClient.post('/api/portfolios', {
+      name,
+      holdings,
+      summary,
+    }),
 
-  marketStatus: () =>
-    api.get('/api/market/status'),
+  listPortfolios: () =>
+    apiClient.get('/api/portfolios'),
+
+  deletePortfolio: (id: number) =>
+    apiClient.delete(`/api/portfolios/${id}`),
 }
 
-  export const recommendationApi = {
-    getGoals: () =>
-      api.get('/api/recommendation/goals'),
-
-    getProfile: (data: {
-      amount: number; goal: string; horizon: string
-      market: string; preferred_sectors?: string[]
-    }) => api.post('/api/recommendation/profile', data),
-
-    generate: (data: {
-      amount: number; goal: string; horizon: string; market: string
-      exchange?: string; preferred_sectors?: string[]
-    }) => api.post('/api/recommendation/generate', data),
-}
+export default apiClient

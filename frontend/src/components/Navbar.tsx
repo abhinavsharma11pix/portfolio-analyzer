@@ -1,3 +1,7 @@
+/**
+ * components/Navbar.tsx — Complete file.
+ * Fixed: hardcoded fetch(`${API_BASE}/...`) -> API_BASE
+ */
 import { useState, useEffect, useCallback, memo } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import {
@@ -7,8 +11,8 @@ import {
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import AlertManager from './AlertManager'
+import { API_BASE } from '../config/api'
 
-/* ── Types ── */
 interface NavProps {
   connected?:    boolean
   lastUpdated?:  string | null
@@ -16,9 +20,8 @@ interface NavProps {
   holdings?:     any[]
 }
 
-/* ── Market status bar (separate component) ── */
 const MarketBar = memo(function MarketBar({
-  connected, nextRefresh
+  connected, lastUpdated, nextRefresh
 }: { connected?: boolean; lastUpdated?: string|null; nextRefresh?: number }) {
   const [time, setTime] = useState(new Date())
 
@@ -49,7 +52,6 @@ const MarketBar = memo(function MarketBar({
   return (
     <div className="bg-gray-950 border-b border-gray-800/60 px-4 md:px-6 py-1.5">
       <div className="max-w-7xl mx-auto flex items-center gap-4 text-xs overflow-x-auto">
-        {/* Connection */}
         <div className={`flex items-center gap-1.5 shrink-0 ${connected ? 'text-green-400' : 'text-red-400'}`}>
           {connected ? (
             <><span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />Live</>
@@ -60,7 +62,6 @@ const MarketBar = memo(function MarketBar({
 
         <span className="text-gray-700">|</span>
 
-        {/* NSE */}
         <div className="flex items-center gap-1.5 shrink-0">
           <span className={`w-1.5 h-1.5 rounded-full ${!isWeekend && nseOpen ? 'bg-green-400 animate-pulse' : 'bg-gray-600'}`} />
           <span className={!isWeekend && nseOpen ? 'text-green-400' : 'text-gray-500'}>
@@ -71,7 +72,6 @@ const MarketBar = memo(function MarketBar({
 
         <span className="text-gray-700">|</span>
 
-        {/* US */}
         <div className="flex items-center gap-1.5 shrink-0">
           <span className={`w-1.5 h-1.5 rounded-full ${usOpen ? 'bg-green-400 animate-pulse' : 'bg-gray-600'}`} />
           <span className={usOpen ? 'text-green-400' : 'text-gray-500'}>
@@ -89,6 +89,15 @@ const MarketBar = memo(function MarketBar({
           </>
         )}
 
+        {lastUpdated && (
+          <>
+            <span className="text-gray-700">|</span>
+            <span className="text-gray-600 shrink-0">
+              Updated {new Date(lastUpdated).toLocaleTimeString('en-IN', { hour12: false })}
+            </span>
+          </>
+        )}
+
         {isWeekend && (
           <>
             <span className="text-gray-700">|</span>
@@ -100,7 +109,6 @@ const MarketBar = memo(function MarketBar({
   )
 })
 
-/* ── Unread badge ── */
 function UnreadBadge({ count }: { count: number }) {
   if (count <= 0) return null
   return (
@@ -110,12 +118,11 @@ function UnreadBadge({ count }: { count: number }) {
   )
 }
 
-/* ── Main Navbar ── */
 const Navbar = memo(function Navbar({
   connected, lastUpdated, nextRefresh, holdings = []
 }: NavProps) {
   const location  = useLocation()
-  const navigate  = useNavigate()
+  const navigate   = useNavigate()
   const { user, isLoggedIn, logout } = useAuth()
 
   const [mobileOpen,  setMobileOpen]  = useState(false)
@@ -123,17 +130,17 @@ const Navbar = memo(function Navbar({
   const [showUser,    setShowUser]    = useState(false)
   const [unreadCount, setUnreadCount] = useState(0)
 
-  // Poll unread count every 30s
+  // Poll unread count every 30s — uses API_BASE, not a hardcoded URL
   useEffect(() => {
     const fetchUnread = async () => {
       try {
-        const res = await fetch('http://localhost:8000/api/alerts/unread-count')
+        const res = await fetch(`${API_BASE}/api/alerts/unread-count`)
         const d   = await res.json()
         setUnreadCount(d.count || 0)
       } catch { /* silent */ }
     }
     fetchUnread()
-    const iv = setInterval(fetchUnread, 60000)
+    const iv = setInterval(fetchUnread, 30000)
     return () => clearInterval(iv)
   }, [])
 
@@ -149,28 +156,25 @@ const Navbar = memo(function Navbar({
       : 'text-gray-400 hover:text-white hover:bg-gray-800/50'
 
   const LINKS = [
-    { path: '/',          label: 'Home',       icon: <Home size={14} /> },
-    { path: '/dashboard', label: 'Dashboard',  icon: <LayoutDashboard size={14} /> },
+    { path: '/',          label: 'Home',        icon: <Home size={14} /> },
+    { path: '/dashboard', label: 'Dashboard',   icon: <LayoutDashboard size={14} /> },
     { path: '/recommend', label: '✨ AI Advisor', icon: <Sparkles size={14} /> },
-    { path: '/tax',       label: '🧾 Tax P&L', icon: <Calculator size={14} /> },
-    { path: '/reports',   label: '📄 Reports', icon: <FileText size={14} /> },
+    { path: '/tax',       label: '🧾 Tax P&L',   icon: <Calculator size={14} /> },
+    { path: '/reports',   label: '📄 Reports',   icon: <FileText size={14} /> },
   ]
 
   return (
     <>
-      {/* Market status bar */}
       <MarketBar
         connected={connected}
         lastUpdated={lastUpdated}
         nextRefresh={nextRefresh}
       />
 
-      {/* Main nav */}
       <nav className="bg-gray-950/95 backdrop-blur-sm border-b border-gray-800/60 sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 md:px-6">
           <div className="flex items-center justify-between h-14">
 
-            {/* Logo */}
             <Link
               to="/"
               className="flex items-center gap-2.5 text-lg font-bold text-white shrink-0"
@@ -181,7 +185,6 @@ const Navbar = memo(function Navbar({
               <span>Portfolio<span className="text-blue-400">AI</span></span>
             </Link>
 
-            {/* Desktop links */}
             <div className="hidden md:flex items-center gap-1">
               {LINKS.map(link => (
                 <Link
@@ -194,10 +197,8 @@ const Navbar = memo(function Navbar({
               ))}
             </div>
 
-            {/* Right section */}
             <div className="flex items-center gap-2">
 
-              {/* Bell */}
               <button
                 onClick={() => setShowAlerts(true)}
                 className="relative p-2 text-gray-400 hover:text-white hover:bg-gray-800/60 rounded-lg transition-all"
@@ -207,7 +208,6 @@ const Navbar = memo(function Navbar({
                 <UnreadBadge count={unreadCount} />
               </button>
 
-              {/* Auth */}
               {isLoggedIn ? (
                 <div className="relative">
                   <button
@@ -273,7 +273,6 @@ const Navbar = memo(function Navbar({
                 </div>
               )}
 
-              {/* Analyze CTA */}
               <Link
                 to="/dashboard"
                 className="hidden lg:flex items-center gap-1.5 px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold rounded-xl transition-all shadow-lg shadow-blue-600/20"
@@ -281,7 +280,6 @@ const Navbar = memo(function Navbar({
                 Analyze Portfolio →
               </Link>
 
-              {/* Mobile menu toggle */}
               <button
                 onClick={() => setMobileOpen(!mobileOpen)}
                 className="md:hidden p-2 text-gray-400 hover:text-white transition-colors"
@@ -292,7 +290,6 @@ const Navbar = memo(function Navbar({
           </div>
         </div>
 
-        {/* Mobile menu */}
         {mobileOpen && (
           <div className="md:hidden border-t border-gray-800 bg-gray-950 px-4 py-3 space-y-1">
             {LINKS.map(link => (
@@ -331,7 +328,6 @@ const Navbar = memo(function Navbar({
         )}
       </nav>
 
-      {/* Alerts slide-over */}
       {showAlerts && (
         <AlertManager
           holdings={holdings}
@@ -339,7 +335,6 @@ const Navbar = memo(function Navbar({
         />
       )}
 
-      {/* Close user dropdown on outside click */}
       {showUser && (
         <div
           className="fixed inset-0 z-30"

@@ -1,3 +1,8 @@
+/**
+ * pages/TaxEngine.tsx — Complete file.
+ * Fixed: hardcoded axios.post(localhost:8000) -> API_BASE
+ * Fixed: unused 'ArrowRight' import, unused 'holdings'/'setHoldings' state
+ */
 import { useState, memo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import axios from 'axios'
@@ -6,6 +11,7 @@ import {
   AlertTriangle, CheckCircle, Info,
   ChevronDown, ChevronUp
 } from 'lucide-react'
+import { API_BASE } from '../config/api'
 
 interface TaxResult {
   fy: string
@@ -102,7 +108,6 @@ const HarvestCard = memo(function HarvestCard({ h }: { h: HarvestSuggestion }) {
 
 export default function TaxEngine() {
   const navigate   = useNavigate()
-  // const [holdings, setHoldings] = useState<any[]>([])
   const [result,   setResult]   = useState<TaxResult | null>(null)
   const [loading,  setLoading]  = useState(false)
   const [error,    setError]    = useState<string | null>(null)
@@ -121,7 +126,7 @@ export default function TaxEngine() {
 
     setLoading(true); setError(null)
     try {
-      const res = await axios.post('http://localhost:8000/api/tax/calculate', {
+      const res = await axios.post(`${API_BASE}/api/tax/calculate`, {
         holdings: parsed,
       }, { timeout: 30000 })
       setResult(res.data)
@@ -142,7 +147,6 @@ export default function TaxEngine() {
     <div className="min-h-screen bg-gray-950">
       <div className="max-w-5xl mx-auto px-4 py-10">
 
-        {/* Header */}
         <div className="mb-8">
           <div className="flex items-center gap-2 mb-2">
             <button onClick={() => navigate('/dashboard')} className="text-gray-500 hover:text-white text-sm">
@@ -155,12 +159,11 @@ export default function TaxEngine() {
             </div>
             <div>
               <h1 className="text-2xl font-bold text-white">Tax P&L Calculator</h1>
-              <p className="text-gray-500 text-sm">India Capital Gains — FY 2024-25 · Budget 2024 rates</p>
+              <p className="text-gray-500 text-sm">India Capital Gains · FY 2024-25 · Budget 2024 rates</p>
             </div>
           </div>
         </div>
 
-        {/* Tax rates banner */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-8">
           {[
             { label: 'STCG Rate', value: '20%', sub: 'Held < 12 months', color: 'text-red-400' },
@@ -216,7 +219,6 @@ export default function TaxEngine() {
               )}
             </button>
 
-            {/* Info */}
             <div className="mt-6 bg-blue-950/20 border border-blue-800/30 rounded-xl p-4">
               <div className="flex items-start gap-2">
                 <Info size={14} className="text-blue-400 shrink-0 mt-0.5" />
@@ -234,7 +236,6 @@ export default function TaxEngine() {
         {mode === 'result' && result && (
           <div className="space-y-6">
 
-            {/* Back + FY */}
             <div className="flex items-center justify-between">
               <button onClick={() => setMode('paste')} className="text-gray-500 hover:text-white text-sm flex items-center gap-1">
                 ← Recalculate
@@ -242,12 +243,10 @@ export default function TaxEngine() {
               <span className="text-xs bg-gray-800 text-gray-400 px-3 py-1 rounded-full">{result.fy}</span>
             </div>
 
-            {/* Summary text */}
             <div className="card p-5 border-l-4 border-blue-600">
               <p className="text-gray-300 text-sm leading-relaxed">{result.summary_text}</p>
             </div>
 
-            {/* Tax cards */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <TaxCard label="STCG"        value={fmt(result.total_stcg)}          color="text-orange-400" />
               <TaxCard label="LTCG"        value={fmt(result.total_ltcg)}          color="text-yellow-400" />
@@ -260,7 +259,6 @@ export default function TaxEngine() {
               />
             </div>
 
-            {/* Tax breakdown */}
             <div className="card p-5">
               <h3 className="text-white font-semibold text-sm mb-4">Tax Breakdown</h3>
               <div className="space-y-2">
@@ -281,7 +279,6 @@ export default function TaxEngine() {
               </div>
             </div>
 
-            {/* Unrealised P&L */}
             {result.unrealised_gains.length > 0 && (
               <div className="card p-5">
                 <h3 className="text-white font-semibold text-sm mb-1">Unrealised Positions</h3>
@@ -322,7 +319,6 @@ export default function TaxEngine() {
               </div>
             )}
 
-            {/* Tax harvesting */}
             {result.harvest_suggestions.length > 0 && (
               <div>
                 <div className="flex items-center gap-2 mb-4">
@@ -349,7 +345,6 @@ export default function TaxEngine() {
               </div>
             )}
 
-            {/* Disclaimer */}
             <div className="bg-yellow-950/20 border border-yellow-800/30 rounded-xl p-4">
               <div className="flex items-start gap-2">
                 <AlertTriangle size={14} className="text-yellow-400 shrink-0 mt-0.5" />

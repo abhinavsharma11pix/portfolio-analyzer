@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import axios from 'axios'
 import { AlertTriangle, ChevronDown, ChevronUp } from 'lucide-react'
+import { API_BASE } from '../config/api'
 
 interface HoldingImpact {
   symbol: string
@@ -34,7 +35,7 @@ export default function ScenarioSimulator({ holdings }: Props) {
     setLoading(true)
     try {
       const res = await axios.post(
-        'http://localhost:8000/api/analytics/simulate',
+        `${API_BASE}/api/analytics/simulate`,
         { holdings }
       )
       setResults(res.data.scenarios || [])

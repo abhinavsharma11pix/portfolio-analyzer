@@ -1,5 +1,6 @@
 import { useEffect, useState, memo } from 'react'
 import { Wifi, WifiOff } from 'lucide-react'
+import { API_BASE } from '../config/api'
 
 interface MarketStatus {
   nse_open: boolean; us_open: boolean; is_weekend: boolean
@@ -19,7 +20,7 @@ const MarketStatusBar = memo(function MarketStatusBar({
     let mounted = true
     const fetch = async () => {
       try {
-        const res  = await window.fetch('http://localhost:8000/api/market/status')
+        const res  = await window.fetch(`${API_BASE}/api/market/status`)
         const data = await res.json()
         if (mounted) setStatus(data)
       } catch { /* silent */ }

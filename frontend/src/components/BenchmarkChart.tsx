@@ -5,6 +5,7 @@ import {
   Legend, ResponsiveContainer, CartesianGrid, ReferenceLine
 } from 'recharts'
 import { TrendingUp, TrendingDown } from 'lucide-react'
+import { API_BASE } from '../config/api'
 
 interface BenchmarkResult {
   name: string
@@ -46,7 +47,7 @@ export default function BenchmarkChart({ holdings }: Props) {
       setError(null)
       try {
         const res = await axios.post(
-          'http://localhost:8000/api/analytics/benchmark',
+          `${API_BASE}/api/analytics/benchmark`,
           { holdings }
         )
         setData(res.data)
