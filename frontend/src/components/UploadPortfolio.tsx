@@ -12,6 +12,7 @@ import {
   Download,
   ChevronDown,
   ChevronUp,
+  Sparkles,
 } from 'lucide-react'
 
 import axios from 'axios'
@@ -74,6 +75,17 @@ const ALLOWED_EXTS = [
   '.xls',
   '.pdf',
 ]
+
+// Realistic prices from ~June 2025 — shows modest gains/losses,
+// a much better demo experience for recruiters than fictional prices.
+const DEMO_CSV = `Symbol,Qty,Buy_Price,Sector
+RELIANCE.NS,10,1280,Energy
+TCS.NS,5,2100,Technology
+INFY.NS,8,1500,Technology
+HDFCBANK.NS,15,1520,Banking
+WIPRO.NS,20,240,Technology
+AAPL,3,190,Technology
+GOOGL,2,165,Technology`
 
 const UploadPortfolio = memo(function UploadPortfolio({
   onUploadSuccess,
@@ -226,6 +238,18 @@ const UploadPortfolio = memo(function UploadPortfolio({
       }
     },
     [validateFile, onUploadSuccess]
+  )
+
+  // Load demo portfolio — creates a File object from the CSV string
+  // and runs it through the exact same upload pipeline as a real file.
+  const handleDemo = useCallback(
+    (e: React.MouseEvent<HTMLButtonElement>) => {
+      e.stopPropagation()
+      const blob = new Blob([DEMO_CSV], { type: 'text/csv' })
+      const file = new File([blob], 'demo_portfolio.csv', { type: 'text/csv' })
+      handleFile(file)
+    },
+    [handleFile]
   )
 
   const handleDrop = useCallback(
@@ -395,6 +419,17 @@ const UploadPortfolio = memo(function UploadPortfolio({
           </div>
         )}
       </div>
+
+      {/* Demo button — shown only when idle (not loading, not already succeeded) */}
+      {!isLoading && !success && (
+        <button
+          onClick={handleDemo}
+          className="w-full flex items-center justify-center gap-2 border border-blue-800/50 bg-blue-950/20 hover:bg-blue-950/40 text-blue-400 hover:text-blue-300 py-3 rounded-xl text-sm font-medium transition-all"
+        >
+          <Sparkles size={15} />
+          ✨ Try with Demo Portfolio — no file needed
+        </button>
+      )}
 
       {/* Error */}
 
@@ -591,7 +626,7 @@ const UploadPortfolio = memo(function UploadPortfolio({
               Symbol, Qty, Buy_Price,
               Sector
               <br />
-              RELIANCE.NS, 10, 2500,
+              RELIANCE.NS, 10, 1280,
               Energy
             </code>
           </div>
