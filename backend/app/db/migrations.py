@@ -1,7 +1,14 @@
 """
 migrations.py — Complete file.
 Pure SQLite. Runs on every server start.
-Creates all tables if they don't exist yet — safe to run repeatedly.
+Safe to run repeatedly — uses CREATE IF NOT EXISTS everywhere.
+
+Fixed vs previous version:
+  1. Added `holdings` table          (was missing → background save failed)
+  2. Added `instrument_master` table  (was missing → background save failed)
+  3. predictions table now has `predicted_at` column
+     (code uses predicted_at; previous schema only had created_at → cache never saved
+      → every prediction re-ran 3 ML models from scratch → 178s per stock)
 """
 import logging
 
@@ -101,7 +108,42 @@ CREATE TABLE IF NOT EXISTS trades (
     created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- ML prediction cache — fixes "no such table: predictions"
+-- Fix 1: holdings table (used by repositories.py for background upsert after upload)
+CREATE TABLE IF NOT EXISTS holdings (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id    TEXT,
+    symbol        TEXT    NOT NULL,
+    quantity      REAL    NOT NULL,
+    avg_buy_price REAL    NOT NULL,
+    current_price REAL,
+    sector        TEXT,
+    currency      TEXT    DEFAULT 'INR',
+    exchange      TEXT    DEFAULT 'NSE',
+    pnl           REAL,
+    pnl_pct       REAL,
+    created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Fix 2: instrument_master table (used by background enrichment after upload)
+CREATE TABLE IF NOT EXISTS instrument_master (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    symbol        TEXT    NOT NULL UNIQUE,
+    name          TEXT,
+    sector        TEXT,
+    industry      TEXT,
+    exchange      TEXT,
+    currency      TEXT    DEFAULT 'INR',
+    market_cap    REAL,
+    beta          REAL,
+    pe_ratio      REAL,
+    country       TEXT,
+    last_updated  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Fix 3: predictions table with predicted_at column
+-- (code in prediction_service.py uses predicted_at for cache TTL check;
+--  previous schema only had created_at → cache write failed → 178s per prediction)
 CREATE TABLE IF NOT EXISTS predictions (
     id                 INTEGER PRIMARY KEY AUTOINCREMENT,
     symbol             TEXT    NOT NULL,
@@ -114,16 +156,20 @@ CREATE TABLE IF NOT EXISTS predictions (
     reliability_grade  TEXT,
     models_used        TEXT,
     model_weights      TEXT,
+    predicted_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     created_at         TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX IF NOT EXISTS idx_alert_rules_symbol    ON alert_rules(symbol);
-CREATE INDEX IF NOT EXISTS idx_alert_rules_user      ON alert_rules(user_id);
-CREATE INDEX IF NOT EXISTS idx_alert_history_read    ON alert_history(is_read);
-CREATE INDEX IF NOT EXISTS idx_trades_user           ON trades(user_id, symbol);
-CREATE INDEX IF NOT EXISTS idx_portfolio_holdings    ON portfolio_holdings(portfolio_id);
-CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user   ON refresh_tokens(user_id);
-CREATE INDEX IF NOT EXISTS idx_predictions_lookup    ON predictions(symbol, horizon_days, created_at);
+-- Indexes
+CREATE INDEX IF NOT EXISTS idx_alert_rules_symbol     ON alert_rules(symbol);
+CREATE INDEX IF NOT EXISTS idx_alert_rules_user       ON alert_rules(user_id);
+CREATE INDEX IF NOT EXISTS idx_alert_history_read     ON alert_history(is_read);
+CREATE INDEX IF NOT EXISTS idx_trades_user            ON trades(user_id, symbol);
+CREATE INDEX IF NOT EXISTS idx_portfolio_holdings     ON portfolio_holdings(portfolio_id);
+CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user    ON refresh_tokens(user_id);
+CREATE INDEX IF NOT EXISTS idx_predictions_lookup     ON predictions(symbol, horizon_days, predicted_at);
+CREATE INDEX IF NOT EXISTS idx_holdings_session       ON holdings(session_id);
+CREATE INDEX IF NOT EXISTS idx_instrument_master_sym  ON instrument_master(symbol);
 """
 
 
