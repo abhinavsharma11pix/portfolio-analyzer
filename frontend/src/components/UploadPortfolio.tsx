@@ -82,8 +82,8 @@ const DEMO_CSV = `Symbol,Qty,Buy_Price,Sector
 RELIANCE.NS,10,1280,Energy
 TCS.NS,5,2100,Technology
 INFY.NS,8,1500,Technology
-HDFCBANK.NS,15,1520,Banking
-WIPRO.NS,20,240,Technology
+HDFCBANK.NS,15,700,Banking
+BAJFINANCE.NS,3,6500,Finance
 AAPL,3,190,Technology
 GOOGL,2,165,Technology`
 
