@@ -3,11 +3,18 @@
  * Single axios instance, all requests go through API_BASE.
  * Attaches JWT access token automatically. Auto-refreshes on 401.
  *
- * Added: retryRequest() helper with backoff, applied to the analytics
- * calls (getRisk, getAdvanced, predict, simulate). These fire right at
- * Dashboard load and are the most exposed to Render's cold-start /
- * deploy-swap window, where the first request after a sleep or a fresh
- * deploy can transiently 404 before the container finishes booting.
+ * Fix: getRisk() was calling /api/analytics/risk (404).
+ *      Correct path from live backend is /api/portfolio/risk.
+ *
+ * All paths verified against live /openapi.json:
+ *   POST /api/portfolio/risk       ✓ (was /api/analytics/risk — wrong)
+ *   POST /api/analytics/advanced   ✓
+ *   GET  /api/portfolio/predict/   ✓
+ *   POST /api/analytics/simulate   ✓
+ *   POST /api/portfolio/upload     ✓
+ *   GET  /api/portfolios           ✓
+ *   POST /api/portfolios           ✓
+ *   DELETE /api/portfolios/{pid}   ✓
  */
 import axios from 'axios'
 import type { AxiosInstance, InternalAxiosRequestConfig } from 'axios'
@@ -40,9 +47,7 @@ apiClient.interceptors.response.use(
       original._retry = true
       const refreshToken = localStorage.getItem('pa_refresh_token')
 
-      if (!refreshToken) {
-        return Promise.reject(error)
-      }
+      if (!refreshToken) return Promise.reject(error)
 
       if (isRefreshing) {
         return new Promise((resolve) => {
@@ -74,16 +79,14 @@ apiClient.interceptors.response.use(
   }
 )
 
-// ── Retry helper for cold-start resilience ──────────────────────
-// Retries on network errors, 404 (container not fully booted yet),
-// and 502/503/504 (gateway/proxy not ready). Does NOT retry on 4xx
-// errors that mean something real (401, 403, 422) — those are
-// handled by the interceptor above or should surface immediately.
-const RETRYABLE_STATUSES = new Set([404, 502, 503, 504])
+// ── Retry helper for transient errors only ──────────────────────
+// Retries on network errors and 502/503/504 (gateway not ready).
+// Does NOT retry on 404 — a 404 means a real routing bug, not transience.
+const RETRYABLE_STATUSES = new Set([502, 503, 504])
 
 async function retryRequest<T>(
   fn: () => Promise<T>,
-  maxRetries = 3,
+  maxRetries = 2,
   baseDelayMs = 1500
 ): Promise<T> {
   let lastError: any
@@ -96,9 +99,8 @@ async function retryRequest<T>(
       const isNetworkError = !err?.response
       const isRetryable = isNetworkError || RETRYABLE_STATUSES.has(status)
 
-      if (!isRetryable || attempt === maxRetries) {
-        throw err
-      }
+      if (!isRetryable || attempt === maxRetries) throw err
+
       const delay = baseDelayMs * Math.pow(1.7, attempt)
       await new Promise((r) => setTimeout(r, delay))
     }
@@ -107,7 +109,9 @@ async function retryRequest<T>(
 }
 
 // ── Portfolio-specific API calls ────────────────────────────────
+// Every path here is verified against the live backend /openapi.json.
 export const portfolioApi = {
+
   upload: (file: File) => {
     const form = new FormData()
     form.append('file', file)
@@ -116,9 +120,13 @@ export const portfolioApi = {
     })
   },
 
+  // ✓ was /api/analytics/risk — WRONG. Correct path: /api/portfolio/risk
   getRisk: (holdings: any[]) =>
-    retryRequest(() => apiClient.post('/api/analytics/risk', { holdings })),
+    retryRequest(() =>
+      apiClient.post('/api/portfolio/risk', { holdings })
+    ),
 
+  // ✓ /api/analytics/advanced — correct, unchanged
   getAdvanced: (holdings: any[], riskMetrics: any) =>
     retryRequest(() =>
       apiClient.post('/api/analytics/advanced', {
@@ -127,6 +135,7 @@ export const portfolioApi = {
       })
     ),
 
+  // ✓ /api/portfolio/predict/{symbol} — correct, unchanged
   predict: (symbol: string, horizonDays = 30) =>
     retryRequest(() =>
       apiClient.get(`/api/portfolio/predict/${symbol}`, {
@@ -134,15 +143,20 @@ export const portfolioApi = {
       })
     ),
 
+  // ✓ /api/analytics/simulate — correct, unchanged
   simulate: (payload: any) =>
-    retryRequest(() => apiClient.post('/api/analytics/simulate', payload)),
+    retryRequest(() =>
+      apiClient.post('/api/analytics/simulate', payload)
+    ),
 
   savePortfolio: (name: string, holdings: any[], summary: any) =>
     apiClient.post('/api/portfolios', { name, holdings, summary }),
 
-  listPortfolios: () => apiClient.get('/api/portfolios'),
+  listPortfolios: () =>
+    apiClient.get('/api/portfolios'),
 
-  deletePortfolio: (id: number) => apiClient.delete(`/api/portfolios/${id}`),
+  deletePortfolio: (id: number) =>
+    apiClient.delete(`/api/portfolios/${id}`),
 }
 
 export default apiClient
