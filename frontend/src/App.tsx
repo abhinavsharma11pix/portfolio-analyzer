@@ -1,45 +1,98 @@
+/**
+ * App.tsx — Complete file.
+ * All routes + ErrorBoundary wrapping every page.
+ * ErrorBoundary catches React render crashes and shows
+ * a recovery screen instead of a blank white page.
+ */
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
-import { QueryClientProvider } from '@tanstack/react-query'
-import { lazy, Suspense } from 'react'
-import { AuthProvider } from './context/AuthContext'
-import { queryClient } from './services/queryClient'
-import Navbar from './components/Navbar'
+import { ErrorBoundary } from './components/ErrorBoundary'
+import { AuthProvider }  from './context/AuthContext'
+import Navbar            from './components/Navbar'
 
-const Home       = lazy(() => import('./pages/Home'))
-const Dashboard  = lazy(() => import('./pages/Dashboard'))
-const Recommend  = lazy(() => import('./pages/Recommend'))
-const Login      = lazy(() => import('./pages/Login'))
-const Register   = lazy(() => import('./pages/Register'))
-const TaxEngine  = lazy(() => import('./pages/TaxEngine'))
-const ReportsPage = lazy(() => import('./pages/ReportsPage'))
-
-
-function PageLoader() {
-  return (
-    <div className="min-h-screen bg-gray-950 flex items-center justify-center">
-      <div className="w-8 h-8 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
-    </div>
-  )
-}
+// Pages
+import Home       from './pages/Home'
+import Dashboard  from './pages/Dashboard'
+import Recommend  from './pages/Recommend'
+import TaxEngine  from './pages/TaxEngine'
+import Reports    from './pages/Reports'
+import Login      from './pages/Login'
+import Register   from './pages/Register'
 
 export default function App() {
   return (
-    <QueryClientProvider client={queryClient}>
+    <BrowserRouter>
       <AuthProvider>
-        <BrowserRouter>
-          <div className="min-h-screen bg-gray-950 text-white">
+        {/* ErrorBoundary wraps everything — any crash shows recovery UI */}
+        <ErrorBoundary>
+          <div className="min-h-screen bg-gray-950">
+
+            {/* Navbar is outside page ErrorBoundary so it stays visible on crash */}
+            <Navbar />
+
+            {/* Each Route wrapped individually so one page crashing
+                doesn't kill the whole app */}
             <Routes>
-              <Route path="/" element={<><Navbar /><Suspense fallback={<PageLoader />}><Home /></Suspense></>} />
-              <Route path="/dashboard" element={<Suspense fallback={<PageLoader />}><Dashboard /></Suspense>} />
-              <Route path="/recommend" element={<Suspense fallback={<PageLoader />}><Recommend /></Suspense>} />
-              <Route path="/tax"       element={<Suspense fallback={<PageLoader />}><TaxEngine /></Suspense>} />
-              <Route path="/login"     element={<Suspense fallback={<PageLoader />}><Login /></Suspense>} />
-              <Route path="/register"  element={<Suspense fallback={<PageLoader />}><Register /></Suspense>} />
-              <Route path="/reports" element={<Suspense fallback={<PageLoader />}><ReportsPage /></Suspense>} />
+
+              <Route path="/" element={
+                <ErrorBoundary>
+                  <Home />
+                </ErrorBoundary>
+              } />
+
+              <Route path="/dashboard" element={
+                <ErrorBoundary>
+                  <Dashboard />
+                </ErrorBoundary>
+              } />
+
+              <Route path="/recommend" element={
+                <ErrorBoundary>
+                  <Recommend />
+                </ErrorBoundary>
+              } />
+
+              <Route path="/tax" element={
+                <ErrorBoundary>
+                  <TaxEngine />
+                </ErrorBoundary>
+              } />
+
+              <Route path="/reports" element={
+                <ErrorBoundary>
+                  <Reports />
+                </ErrorBoundary>
+              } />
+
+              <Route path="/login" element={
+                <ErrorBoundary>
+                  <Login />
+                </ErrorBoundary>
+              } />
+
+              <Route path="/register" element={
+                <ErrorBoundary>
+                  <Register />
+                </ErrorBoundary>
+              } />
+
+              {/* 404 fallback */}
+              <Route path="*" element={
+                <div className="min-h-[60vh] flex flex-col items-center justify-center text-center px-4">
+                  <p className="text-6xl font-black text-gray-800 mb-4">404</p>
+                  <p className="text-white text-xl font-semibold mb-2">Page not found</p>
+                  <p className="text-gray-500 text-sm mb-6">
+                    The page you're looking for doesn't exist.
+                  </p>
+                  <a href="/" className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2.5 rounded-xl text-sm font-medium transition-colors">
+                    Go Home
+                  </a>
+                </div>
+              } />
+
             </Routes>
           </div>
-        </BrowserRouter>
+        </ErrorBoundary>
       </AuthProvider>
-    </QueryClientProvider>
+    </BrowserRouter>
   )
 }
