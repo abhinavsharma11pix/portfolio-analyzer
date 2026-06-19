@@ -1,16 +1,17 @@
 """
 migrations.py — Complete file.
 Pure SQLite. Runs on every server start.
-Safe to run repeatedly — uses CREATE IF NOT EXISTS everywhere.
+Safe to run repeatedly.
 
-Fixed vs previous version:
-  1. Added `holdings` table          (was missing → background save failed)
-  2. Added `instrument_master` table  (was missing → background save failed)
-  3. predictions table now has `predicted_at` column
-     (code uses predicted_at; previous schema only had created_at → cache never saved
-      → every prediction re-ran 3 ML models from scratch → 178s per stock)
+Key design: CREATE TABLE IF NOT EXISTS handles new installs.
+            ALTER TABLE ... ADD COLUMN handles existing installs
+            where the table exists but is missing new columns.
+            SQLite silently errors on "duplicate column" so we
+            catch that and move on — this makes every ALTER safe
+            to run multiple times.
 """
 import logging
+import sqlite3
 
 logger = logging.getLogger(__name__)
 
@@ -108,7 +109,6 @@ CREATE TABLE IF NOT EXISTS trades (
     created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Fix 1: holdings table (used by repositories.py for background upsert after upload)
 CREATE TABLE IF NOT EXISTS holdings (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     session_id    TEXT,
@@ -125,7 +125,6 @@ CREATE TABLE IF NOT EXISTS holdings (
     updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Fix 2: instrument_master table (used by background enrichment after upload)
 CREATE TABLE IF NOT EXISTS instrument_master (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     symbol        TEXT    NOT NULL UNIQUE,
@@ -141,9 +140,6 @@ CREATE TABLE IF NOT EXISTS instrument_master (
     last_updated  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Fix 3: predictions table with predicted_at column
--- (code in prediction_service.py uses predicted_at for cache TTL check;
---  previous schema only had created_at → cache write failed → 178s per prediction)
 CREATE TABLE IF NOT EXISTS predictions (
     id                 INTEGER PRIMARY KEY AUTOINCREMENT,
     symbol             TEXT    NOT NULL,
@@ -160,7 +156,6 @@ CREATE TABLE IF NOT EXISTS predictions (
     created_at         TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Indexes
 CREATE INDEX IF NOT EXISTS idx_alert_rules_symbol     ON alert_rules(symbol);
 CREATE INDEX IF NOT EXISTS idx_alert_rules_user       ON alert_rules(user_id);
 CREATE INDEX IF NOT EXISTS idx_alert_history_read     ON alert_history(is_read);
@@ -172,18 +167,54 @@ CREATE INDEX IF NOT EXISTS idx_holdings_session       ON holdings(session_id);
 CREATE INDEX IF NOT EXISTS idx_instrument_master_sym  ON instrument_master(symbol);
 """
 
+# Columns that must exist on tables that were created before this migration.
+# Format: (table_name, column_name, column_definition)
+# ALTER TABLE is safe to retry — duplicate column errors are caught and ignored.
+COLUMN_MIGRATIONS = [
+    ("predictions", "predicted_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"),
+    ("predictions", "created_at",   "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"),
+    ("holdings",    "session_id",   "TEXT"),
+    ("holdings",    "updated_at",   "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"),
+]
+
+
+def _add_column_if_missing(conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:
+    """
+    Add a column to an existing table if it doesn't already exist.
+    SQLite raises OperationalError('duplicate column name: X') if it
+    already exists — we catch that and move on silently.
+    """
+    try:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+        conn.commit()
+        logger.info(f"  + Added column {table}.{column}")
+    except sqlite3.OperationalError as e:
+        if "duplicate column" in str(e).lower():
+            pass  # Already exists — this is fine
+        else:
+            logger.warning(f"  ALTER {table}.{column} skipped: {e}")
+
 
 def run_migrations() -> None:
     """
     Run all migrations. Called once on server startup from main.py lifespan.
-    Safe to run multiple times — uses CREATE IF NOT EXISTS everywhere.
+    Two-phase:
+      1. CREATE TABLE IF NOT EXISTS  — handles fresh installs
+      2. ALTER TABLE ADD COLUMN      — handles existing DBs missing new columns
     """
     from app.core.database import get_connection
 
     try:
         conn = get_connection()
+
+        # Phase 1: create all tables (skips tables that already exist)
         conn.executescript(SCHEMA)
         conn.commit()
+
+        # Phase 2: add any missing columns to existing tables
+        for table, column, definition in COLUMN_MIGRATIONS:
+            _add_column_if_missing(conn, table, column, definition)
+
         conn.close()
         logger.info("✅ DB migrations complete")
     except Exception as e:
