@@ -2,7 +2,7 @@
 
 > Institutional-grade portfolio analytics, ML price predictions, AI investment recommendations, and India-specific tax calculations — in one platform.
 
-**[🚀 Live Demo](https://https://portfolio-analyzer-sigma-amber.vercel.app/)** · [API Docs](https://portfolio-ai-backend-wtm1.onrender.com/docs)
+**[🚀 Live Demo](https://portfolio-analyzer-sigma-amber.vercel.app/)** · [API Docs](https://portfolio-ai-backend-wtm1.onrender.com/docs)
 
 ---
 
