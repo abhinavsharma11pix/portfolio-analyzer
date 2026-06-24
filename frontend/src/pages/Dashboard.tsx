@@ -20,6 +20,8 @@ import {
 } from '../components/ui/Skeleton'
 import { useWebSocket }  from '../hooks/useWebSocket'
 import { portfolioApi }  from '../services/api'
+// import PortfolioScoreCard from '../components/PortfolioScoreCard'
+// import { DashboardSkeleton } from '../components/Skeletons'
 // import { useAuth }       from '../context/AuthContext'
 
 // Stage 2 — lazy
@@ -486,6 +488,7 @@ export default function Dashboard() {
           </div>
         )}
       </div>
+      
 
       {/* Save Portfolio Modal */}
       {showSave && portfolioData && (

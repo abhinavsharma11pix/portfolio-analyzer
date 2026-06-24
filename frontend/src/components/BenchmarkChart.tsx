@@ -1,204 +1,314 @@
+/**
+ * components/BenchmarkChart.tsx
+ * Portfolio return vs NIFTY50 / S&P500 comparison.
+ * Uses existing /api/analytics/benchmark endpoint.
+ *
+ * Usage in Dashboard.tsx:
+ *   import BenchmarkChart from './components/BenchmarkChart'
+ *   <BenchmarkChart holdings={holdings} />
+ */
 import { useState, useEffect } from 'react'
-import axios from 'axios'
 import {
   LineChart, Line, XAxis, YAxis, Tooltip,
-  Legend, ResponsiveContainer, CartesianGrid, ReferenceLine
+  Legend, ResponsiveContainer, ReferenceLine, CartesianGrid,
 } from 'recharts'
-import { TrendingUp, TrendingDown } from 'lucide-react'
-import { API_BASE } from '../config/api'
+import { TrendingUp, TrendingDown, BarChart3 } from 'lucide-react'
+import { apiClient } from '../services/api'
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+interface BenchmarkPoint {
+  date:      string
+  portfolio: number
+  benchmark: number
+}
 
 interface BenchmarkResult {
-  name: string
-  portfolio_return: number
-  benchmark_return: number
-  outperformance: number
-  portfolio_vol: number
-  benchmark_vol: number
-  beta: number
-  beating: boolean
-  chart_data: { date: string; portfolio: number; benchmark: number }[]
+  portfolio_return:  number
+  benchmark_return:  number
+  alpha:             number
+  beta:              number
+  correlation:       number
+  tracking_error:    number
+  information_ratio: number
+  chart_data:        BenchmarkPoint[]
+  benchmark_name:    string
 }
 
 interface Props {
-  holdings: any[]
+  holdings:   any[]
+  className?: string
 }
 
-function safeFormat(value: unknown): string {
-  const num = typeof value === 'number' ? value : Number(value)
-  return isFinite(num) ? num.toFixed(2) : '—'
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const BENCHMARKS = [
+  { value: '^NSEI',  label: 'NIFTY 50',  flag: '🇮🇳' },
+  { value: '^BSESN', label: 'SENSEX',    flag: '🇮🇳' },
+  { value: '^GSPC',  label: 'S&P 500',   flag: '🇺🇸' },
+  { value: '^IXIC',  label: 'NASDAQ 100', flag: '🇺🇸' },
+]
+
+const PERIODS = [
+  { value: '1M',  label: '1M' },
+  { value: '3M',  label: '3M' },
+  { value: '6M',  label: '6M' },
+  { value: '1Y',  label: '1Y' },
+  { value: '3Y',  label: '3Y' },
+]
+
+// ─── Sub-components ───────────────────────────────────────────────────────────
+
+function MetricCard({ label, value, sub, positive }: {
+  label: string
+  value: string
+  sub?: string
+  positive?: boolean
+}) {
+  return (
+    <div className="bg-gray-800/40 rounded-xl p-3">
+      <p className="text-gray-500 text-xs mb-1">{label}</p>
+      <p className={`text-base font-bold tabular-nums ${
+        positive === undefined ? 'text-white' :
+        positive ? 'text-green-400' : 'text-red-400'
+      }`}>
+        {value}
+      </p>
+      {sub && <p className="text-gray-600 text-xs mt-0.5">{sub}</p>}
+    </div>
+  )
 }
 
-function safePercent(value: number): string {
-  if (!isFinite(value)) return '—'
-  return `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`
-}
+// ─── Main component ───────────────────────────────────────────────────────────
 
-export default function BenchmarkChart({ holdings }: Props) {
-  const [data, setData]         = useState<Record<string, BenchmarkResult> | null>(null)
-  const [loading, setLoading]   = useState(false)
-  const [selected, setSelected] = useState<string>('nifty50')
-  const [error, setError]       = useState<string | null>(null)
+export default function BenchmarkChart({ holdings, className = '' }: Props) {
+  const [data,      setData]      = useState<BenchmarkResult | null>(null)
+  const [loading,   setLoading]   = useState(false)
+  const [error,     setError]     = useState<string | null>(null)
+  const [benchmark, setBenchmark] = useState('^NSEI')
+  const [period,    setPeriod]    = useState('1Y')
 
   useEffect(() => {
-    if (!holdings?.length) return
+    if (!holdings || holdings.length === 0) return
+    let cancelled = false
 
-    const fetchData = async () => {
+    // FIX: renamed inner function from `fetch` (shadows global) to `loadData`
+    const loadData = async () => {
       setLoading(true)
       setError(null)
       try {
-        const res = await axios.post(
-          `${API_BASE}/api/analytics/benchmark`,
-          { holdings }
-        )
-        setData(res.data)
-      } catch {
-        setError('Could not load benchmark data')
+        const res = await apiClient.post('/api/analytics/benchmark', {
+          holdings,
+          benchmark,
+          period,   // FIX: added missing period parameter
+        })
+        if (!cancelled) setData(res.data)
+      } catch (e: any) {
+        if (!cancelled) setError(e.response?.data?.detail ?? 'Benchmark comparison failed')
       } finally {
-        setLoading(false)
+        if (!cancelled) setLoading(false)
       }
     }
 
-    fetchData()
-  }, [holdings])
+    loadData()
+    return () => { cancelled = true }
+  }, [holdings, benchmark, period]) // FIX: added `period` to dependency array
 
-  if (loading) return (
-    <div className="bg-gray-900 border border-gray-800 rounded-2xl p-8 text-center">
-      <div className="w-8 h-8 border-4 border-blue-400 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-      <p className="text-gray-400 text-sm">Comparing vs benchmarks...</p>
-    </div>
-  )
+  const isOutperforming = (data?.alpha ?? 0) > 0
+  const benchmarkLabel  = BENCHMARKS.find(b => b.value === benchmark)?.label ?? benchmark
 
-  if (error) return (
-    <div className="bg-gray-900 border border-red-800 rounded-2xl p-4 text-red-400 text-sm">
-      ⚠️ {error}
-    </div>
-  )
-
-  if (!data || !Object.keys(data).length) return null
-
-  const current = data[selected]
-  if (!current) return null
+  // FIX: explicit empty-state instead of rendering nothing
+  if (!holdings || holdings.length === 0) {
+    return (
+      <div className={`card p-5 ${className}`}>
+        <div className="flex items-center gap-2 mb-4">
+          <BarChart3 size={16} className="text-blue-400" />
+          <h3 className="text-white font-semibold text-sm">vs Benchmark</h3>
+        </div>
+        <div className="h-32 flex items-center justify-center text-gray-500 text-sm">
+          Add holdings to see benchmark comparison
+        </div>
+      </div>
+    )
+  }
 
   return (
-    <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
+    <div className={`card p-5 ${className}`}>
 
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <h3 className="text-white font-semibold text-lg">
-          📊 Benchmark Comparison
-        </h3>
-        <div className="flex gap-2">
-          {Object.entries(data).map(([key, val]) => (
+      {/* ── Header ── */}
+      <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <div className="flex items-center gap-2">
+          <BarChart3 size={16} className="text-blue-400" />
+          <h3 className="text-white font-semibold text-sm">vs Benchmark</h3>
+          {data && !loading && (
+            <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${
+              isOutperforming
+                ? 'bg-green-900/30 text-green-400'
+                : 'bg-red-900/30 text-red-400'
+            }`}>
+              {isOutperforming ? '↑ Outperforming' : '↓ Underperforming'}
+            </span>
+          )}
+        </div>
+
+        {/* Benchmark selector */}
+        <div className="flex gap-1 flex-wrap">
+          {BENCHMARKS.map(b => (
             <button
-              key={key}
-              onClick={() => setSelected(key)}
-              className={`text-xs px-3 py-1.5 rounded-lg transition-colors ${
-                selected === key
+              key={b.value}
+              onClick={() => setBenchmark(b.value)}
+              className={`text-xs px-2.5 py-1 rounded-lg transition-all ${
+                benchmark === b.value
                   ? 'bg-blue-600 text-white'
-                  : 'bg-gray-800 text-gray-400 hover:text-white'
+                  : 'bg-gray-800/60 text-gray-400 hover:text-white'
               }`}
             >
-              {val.name}
+              {b.flag} {b.label}
             </button>
           ))}
         </div>
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        <div className="bg-gray-800/50 rounded-xl p-3">
-          <p className="text-gray-500 text-xs mb-1">Your Return</p>
-          <p className={`text-xl font-bold ${
-            current.portfolio_return >= 0 ? 'text-green-400' : 'text-red-400'
-          }`}>
-            {safePercent(current.portfolio_return)}
-          </p>
-        </div>
-
-        <div className="bg-gray-800/50 rounded-xl p-3">
-          <p className="text-gray-500 text-xs mb-1">{current.name}</p>
-          <p className={`text-xl font-bold ${
-            current.benchmark_return >= 0 ? 'text-green-400' : 'text-red-400'
-          }`}>
-            {safePercent(current.benchmark_return)}
-          </p>
-        </div>
-
-        <div className="bg-gray-800/50 rounded-xl p-3">
-          <p className="text-gray-500 text-xs mb-1">Outperformance</p>
-          <p className={`text-xl font-bold flex items-center gap-1 ${
-            current.beating ? 'text-green-400' : 'text-red-400'
-          }`}>
-            {current.beating
-              ? <TrendingUp size={16} />
-              : <TrendingDown size={16} />
-            }
-            {safePercent(current.outperformance)}
-          </p>
-        </div>
-
-        <div className="bg-gray-800/50 rounded-xl p-3">
-          <p className="text-gray-500 text-xs mb-1">Beta</p>
-          <p className="text-xl font-bold text-blue-400">
-            {safeFormat(current.beta)}
-          </p>
-        </div>
+      {/* FIX: Period selector (was missing entirely) */}
+      <div className="flex gap-1 mb-4">
+        {PERIODS.map(p => (
+          <button
+            key={p.value}
+            onClick={() => setPeriod(p.value)}
+            className={`text-xs px-2.5 py-1 rounded-lg transition-all ${
+              period === p.value
+                ? 'bg-gray-600 text-white'
+                : 'bg-gray-800/60 text-gray-400 hover:text-white'
+            }`}
+          >
+            {p.label}
+          </button>
+        ))}
       </div>
 
-      {/* Chart */}
-      {current.chart_data?.length > 0 && (
-        <ResponsiveContainer width="100%" height={250}>
-          <LineChart data={current.chart_data}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
-            <XAxis
-              dataKey="date"
-              tick={{ fill: '#6b7280', fontSize: 10 }}
-              tickFormatter={(v) => v.slice(5)}
-              axisLine={{ stroke: '#374151' }}
-            />
-            <YAxis
-              tick={{ fill: '#6b7280', fontSize: 10 }}
-              axisLine={{ stroke: '#374151' }}
-              tickFormatter={(v) => safeFormat(v)}
-            />
-            <Tooltip
-              formatter={(value, name) => [
-                safeFormat(value),
-                name === 'portfolio' ? 'Your Portfolio' : current.name
-              ]}
-              contentStyle={{
-                backgroundColor: '#111827',
-                border: '1px solid #374151',
-                borderRadius: '8px',
-                color: '#fff',
-                fontSize: '12px'
-              }}
-            />
-            <ReferenceLine y={100} stroke="#374151" strokeDasharray="4 4" />
-            <Legend
-              formatter={(v) => (
-                <span className="text-gray-300 text-xs">
-                  {v === 'portfolio' ? 'Your Portfolio' : current.name}
-                </span>
-              )}
-            />
-            <Line
-              dataKey="portfolio"
-              stroke="#3b82f6"
-              strokeWidth={2}
-              dot={false}
-            />
-            <Line
-              dataKey="benchmark"
-              stroke="#f59e0b"
-              strokeWidth={2}
-              dot={false}
-              strokeDasharray="5 3"
-            />
-          </LineChart>
-        </ResponsiveContainer>
+      {/* ── Loading ── */}
+      {loading && (
+        <div className="h-48 flex items-center justify-center">
+          <div className="w-6 h-6 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
+        </div>
       )}
 
+      {/* ── Error ── */}
+      {error && !loading && (
+        <div className="h-32 flex items-center justify-center text-red-400 text-sm">
+          {error}
+        </div>
+      )}
+
+      {/* ── Data ── */}
+      {data && !loading && (
+        <>
+          {/* Metric cards */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-4">
+            <MetricCard
+              label="Your Return"
+              value={`${data.portfolio_return >= 0 ? '+' : ''}${data.portfolio_return.toFixed(1)}%`}
+              positive={data.portfolio_return >= 0}
+            />
+            <MetricCard
+              label={`${benchmarkLabel} Return`}
+              value={`${data.benchmark_return >= 0 ? '+' : ''}${data.benchmark_return.toFixed(1)}%`}
+              positive={data.benchmark_return >= 0}
+            />
+            <MetricCard
+              label="Alpha"
+              value={`${data.alpha >= 0 ? '+' : ''}${data.alpha.toFixed(2)}%`}
+              sub="Return above benchmark"
+              positive={data.alpha >= 0}
+            />
+            <MetricCard
+              label="Beta"
+              value={data.beta.toFixed(2)}
+              sub={
+                data.beta > 1 ? 'More volatile' :
+                data.beta < 1 ? 'Less volatile' :
+                'Matches market'
+              }
+            />
+          </div>
+
+          {/* Line chart */}
+          <ResponsiveContainer width="100%" height={200}>
+            <LineChart data={data.chart_data}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
+              <XAxis
+                dataKey="date"
+                tick={{ fill: '#6b7280', fontSize: 10 }}
+                tickFormatter={v => v.slice(5)}   // "YYYY-MM-DD" → "MM-DD"
+                axisLine={{ stroke: '#374151' }}
+              />
+              <YAxis
+                tick={{ fill: '#6b7280', fontSize: 10 }}
+                axisLine={{ stroke: '#374151' }}
+                tickFormatter={v => `${v >= 0 ? '+' : ''}${(v as number).toFixed(0)}%`}
+                domain={['auto', 'auto']}
+                width={52}
+              />
+              <Tooltip
+                contentStyle={{
+                  backgroundColor: '#111827',
+                  border: '1px solid #374151',
+                  borderRadius: '8px',
+                  color: '#fff',
+                  fontSize: '12px',
+                }}
+                formatter={(v: any, name?: string | number) => [
+                  `${(v as number) >= 0 ? '+' : ''}${(v as number).toFixed(1)}%`,
+                  name === 'portfolio' ? 'Your Portfolio' : benchmarkLabel,
+                ]}
+              />
+              <Legend
+                formatter={v =>
+                  // FIX: return a plain string to avoid ReactNode type mismatch warning
+                  v === 'portfolio' ? 'Your Portfolio' : benchmarkLabel
+                }
+                wrapperStyle={{ fontSize: '12px', color: '#d1d5db' }}
+              />
+              <ReferenceLine y={0} stroke="#374151" />
+              <Line
+                dataKey="portfolio"
+                stroke="#3b82f6"
+                strokeWidth={2}
+                dot={false}
+                name="portfolio"
+              />
+              <Line
+                dataKey="benchmark"
+                stroke="#9ca3af"
+                strokeWidth={1.5}
+                strokeDasharray="4 4"
+                dot={false}
+                name="benchmark"
+              />
+            </LineChart>
+          </ResponsiveContainer>
+
+          {/* Footer */}
+          <div className="flex items-center justify-between mt-3 pt-3 border-t border-white/[0.04]">
+            <div className="flex items-center gap-2">
+              {isOutperforming
+                ? <TrendingUp  size={13} className="text-green-400" />
+                : <TrendingDown size={13} className="text-red-400"  />
+              }
+              <span className={`text-xs ${isOutperforming ? 'text-green-400' : 'text-red-400'}`}>
+                {Math.abs(data.alpha).toFixed(1)}%{' '}
+                {isOutperforming ? 'above' : 'below'} {benchmarkLabel}
+              </span>
+            </div>
+            {/* FIX: also surface tracking_error alongside the other stats */}
+            <div className="flex gap-3 text-xs text-gray-600">
+              <span>Correlation: {(data.correlation * 100).toFixed(0)}%</span>
+              <span>Track. Err: {data.tracking_error.toFixed(2)}%</span>
+              <span>Info Ratio: {data.information_ratio.toFixed(2)}</span>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   )
 }
