@@ -1,14 +1,15 @@
 """
 migrations.py — Complete file.
-Pure SQLite. Runs on every server start.
-Safe to run repeatedly.
+Pure SQLite. Runs on every server start. Safe to run repeatedly.
 
-Key design: CREATE TABLE IF NOT EXISTS handles new installs.
-            ALTER TABLE ... ADD COLUMN handles existing installs
-            where the table exists but is missing new columns.
-            SQLite silently errors on "duplicate column" so we
-            catch that and move on — this makes every ALTER safe
-            to run multiple times.
+Fixed in this version:
+  - holdings.portfolio_id column was referenced by repositories.py
+    INSERT statements but never existed in the schema → every
+    background save silently failed in production.
+  - instrument_master.last_price column was referenced but missing
+    → same silent failure on every upload.
+  Both now in CREATE TABLE (new installs) AND ALTER TABLE
+  (existing installs where the table already exists).
 """
 import logging
 import sqlite3
@@ -109,8 +110,10 @@ CREATE TABLE IF NOT EXISTS trades (
     created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- holdings: includes portfolio_id from the start now
 CREATE TABLE IF NOT EXISTS holdings (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    portfolio_id  INTEGER,
     session_id    TEXT,
     symbol        TEXT    NOT NULL,
     quantity      REAL    NOT NULL,
@@ -125,6 +128,7 @@ CREATE TABLE IF NOT EXISTS holdings (
     updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- instrument_master: includes last_price from the start now
 CREATE TABLE IF NOT EXISTS instrument_master (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     symbol        TEXT    NOT NULL UNIQUE,
@@ -136,6 +140,7 @@ CREATE TABLE IF NOT EXISTS instrument_master (
     market_cap    REAL,
     beta          REAL,
     pe_ratio      REAL,
+    last_price    REAL,
     country       TEXT,
     last_updated  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -164,57 +169,42 @@ CREATE INDEX IF NOT EXISTS idx_portfolio_holdings     ON portfolio_holdings(port
 CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user    ON refresh_tokens(user_id);
 CREATE INDEX IF NOT EXISTS idx_predictions_lookup     ON predictions(symbol, horizon_days, predicted_at);
 CREATE INDEX IF NOT EXISTS idx_holdings_session       ON holdings(session_id);
+CREATE INDEX IF NOT EXISTS idx_holdings_portfolio     ON holdings(portfolio_id);
 CREATE INDEX IF NOT EXISTS idx_instrument_master_sym  ON instrument_master(symbol);
 """
 
-# Columns that must exist on tables that were created before this migration.
-# Format: (table_name, column_name, column_definition)
-# ALTER TABLE is safe to retry — duplicate column errors are caught and ignored.
+# (table, column, definition) — applied via ALTER TABLE if the table
+# already existed before this column was added to SCHEMA above.
 COLUMN_MIGRATIONS = [
-    ("predictions", "predicted_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"),
-    ("predictions", "created_at",   "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"),
-    ("holdings",    "session_id",   "TEXT"),
-    ("holdings",    "updated_at",   "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"),
+    ("predictions",       "predicted_at",  "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"),
+    ("predictions",       "created_at",    "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"),
+    ("holdings",          "session_id",    "TEXT"),
+    ("holdings",          "updated_at",    "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"),
+    ("holdings",          "portfolio_id",  "INTEGER"),          # ← fixes bug #1
+    ("instrument_master", "last_price",    "REAL"),              # ← fixes bug #2
 ]
 
 
 def _add_column_if_missing(conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:
-    """
-    Add a column to an existing table if it doesn't already exist.
-    SQLite raises OperationalError('duplicate column name: X') if it
-    already exists — we catch that and move on silently.
-    """
     try:
         conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
         conn.commit()
         logger.info(f"  + Added column {table}.{column}")
     except sqlite3.OperationalError as e:
         if "duplicate column" in str(e).lower():
-            pass  # Already exists — this is fine
+            pass
         else:
             logger.warning(f"  ALTER {table}.{column} skipped: {e}")
 
 
 def run_migrations() -> None:
-    """
-    Run all migrations. Called once on server startup from main.py lifespan.
-    Two-phase:
-      1. CREATE TABLE IF NOT EXISTS  — handles fresh installs
-      2. ALTER TABLE ADD COLUMN      — handles existing DBs missing new columns
-    """
     from app.core.database import get_connection
-
     try:
         conn = get_connection()
-
-        # Phase 1: create all tables (skips tables that already exist)
         conn.executescript(SCHEMA)
         conn.commit()
-
-        # Phase 2: add any missing columns to existing tables
         for table, column, definition in COLUMN_MIGRATIONS:
             _add_column_if_missing(conn, table, column, definition)
-
         conn.close()
         logger.info("✅ DB migrations complete")
     except Exception as e:

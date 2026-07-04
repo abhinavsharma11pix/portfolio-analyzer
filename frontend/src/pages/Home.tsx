@@ -1,7 +1,8 @@
 /**
  * pages/Home.tsx — Complete file.
- * Added Navbar at the top (this page previously had no Navbar).
- * All other pages (Dashboard etc.) render their own Navbar with live props.
+ * Fixed: Try Live Demo now has proper error handling, timeout detection,
+ * and passes data via both sessionStorage AND router state (covers race
+ * condition where Dashboard mounted before sessionStorage was readable).
  */
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -9,60 +10,20 @@ import {
   BarChart3, Brain, Shield, FileText, Zap,
   Calculator, Bell, ChevronRight,
   ExternalLink, Activity,
-  Sparkles, ArrowRight, CheckCircle,
+  Sparkles, ArrowRight, CheckCircle, AlertTriangle,
 } from 'lucide-react'
-import Navbar    from '../components/Navbar'
+import Navbar from '../components/Navbar'
 import { API_BASE } from '../config/api'
 
 const FEATURES = [
-  {
-    icon: <BarChart3 size={20} className="text-blue-400" />,
-    title: 'Portfolio Analytics',
-    desc: 'Sharpe ratio, Value-at-Risk, Max Drawdown, Beta, Sortino. Institutional-grade risk metrics computed on real market data.',
-    badge: 'Risk Engine', color: 'blue',
-  },
-  {
-    icon: <Brain size={20} className="text-purple-400" />,
-    title: 'ML Price Predictions',
-    desc: 'Ensemble of ETS + Random Forest + LightGBM. 30-day forecast with confidence bands and A–D reliability grading.',
-    badge: '3 Models', color: 'purple',
-  },
-  {
-    icon: <Sparkles size={20} className="text-yellow-400" />,
-    title: 'AI Investment Advisor',
-    desc: '6-step wizard builds an optimised portfolio from 2,300+ NSE stocks. Whole-share enforcement for Indian markets.',
-    badge: 'Groq LLaMA', color: 'yellow',
-  },
-  {
-    icon: <Activity size={20} className="text-green-400" />,
-    title: 'Live Price WebSocket',
-    desc: 'Real-time price streaming via WebSocket with exponential-backoff reconnect. Stale detection and per-symbol tracking.',
-    badge: 'WebSocket', color: 'green',
-  },
-  {
-    icon: <Calculator size={20} className="text-orange-400" />,
-    title: 'India Tax Engine',
-    desc: 'STCG/LTCG computation under Budget 2024 rates. FIFO lot matching, ₹1.25L exemption, 4% cess, and harvest suggestions.',
-    badge: 'FY 2024-25', color: 'orange',
-  },
-  {
-    icon: <FileText size={20} className="text-pink-400" />,
-    title: 'Institutional PDF Reports',
-    desc: 'Goldman Sachs-style A4 report with executive summary, narrative insights, charts, and holdings table.',
-    badge: 'ReportLab', color: 'pink',
-  },
-  {
-    icon: <Bell size={20} className="text-cyan-400" />,
-    title: 'Price Alerts',
-    desc: 'Rules-based alert engine. Set price-above, price-below, or ±% thresholds. Unread badge in navbar.',
-    badge: 'Real-time', color: 'cyan',
-  },
-  {
-    icon: <Shield size={20} className="text-red-400" />,
-    title: 'JWT Authentication',
-    desc: 'Bcrypt + SHA-256 password hashing. Access + refresh token pair. Auto-refresh interceptor on 401.',
-    badge: 'Secure', color: 'red',
-  },
+  { icon: <BarChart3 size={20} className="text-blue-400" />, title: 'Portfolio Analytics', desc: 'Sharpe ratio, Value-at-Risk, Max Drawdown, Beta, Sortino. Institutional-grade risk metrics computed on real market data.', badge: 'Risk Engine', color: 'blue' },
+  { icon: <Brain size={20} className="text-purple-400" />, title: 'ML Price Predictions', desc: 'Ensemble of ETS + Random Forest + LightGBM. 30-day forecast with confidence bands and A–D reliability grading.', badge: '3 Models', color: 'purple' },
+  { icon: <Sparkles size={20} className="text-yellow-400" />, title: 'AI Investment Advisor', desc: 'Evidence-backed recommendations from 2,300+ NSE stocks, with reasoning for every pick. Whole-share enforcement.', badge: 'Groq LLaMA', color: 'yellow' },
+  { icon: <Activity size={20} className="text-green-400" />, title: 'Live Price WebSocket', desc: 'Real-time price streaming via WebSocket with exponential-backoff reconnect and stale detection.', badge: 'WebSocket', color: 'green' },
+  { icon: <Calculator size={20} className="text-orange-400" />, title: 'India Tax Engine', desc: 'STCG/LTCG computation under Budget 2024 rates. FIFO lot matching, ₹1.25L exemption, harvest suggestions.', badge: 'FY 2024-25', color: 'orange' },
+  { icon: <FileText size={20} className="text-pink-400" />, title: 'Institutional PDF Reports', desc: 'Goldman Sachs-style A4 report with executive summary, narrative insights, charts, and holdings table.', badge: 'ReportLab', color: 'pink' },
+  { icon: <Bell size={20} className="text-cyan-400" />, title: 'Price Alerts', desc: 'Rules-based alert engine. Set price-above, price-below, or ±% thresholds. Unread badge in navbar.', badge: 'Real-time', color: 'cyan' },
+  { icon: <Shield size={20} className="text-red-400" />, title: 'JWT Authentication', desc: 'Bcrypt + SHA-256 password hashing. Access + refresh token pair. Auto-refresh interceptor on 401.', badge: 'Secure', color: 'red' },
 ]
 
 const TECH_STACK = [
@@ -90,25 +51,20 @@ AAPL,3,190,Technology
 GOOGL,2,165,Technology`
 
 const BORDER: Record<string, string> = {
-  blue: 'border-blue-800/40 hover:border-blue-700',
-  purple: 'border-purple-800/40 hover:border-purple-700',
-  yellow: 'border-yellow-800/40 hover:border-yellow-700',
-  green: 'border-green-800/40 hover:border-green-700',
-  orange: 'border-orange-800/40 hover:border-orange-700',
-  pink: 'border-pink-800/40 hover:border-pink-700',
-  cyan: 'border-cyan-800/40 hover:border-cyan-700',
-  red: 'border-red-800/40 hover:border-red-700',
+  blue: 'border-blue-800/40 hover:border-blue-700', purple: 'border-purple-800/40 hover:border-purple-700',
+  yellow: 'border-yellow-800/40 hover:border-yellow-700', green: 'border-green-800/40 hover:border-green-700',
+  orange: 'border-orange-800/40 hover:border-orange-700', pink: 'border-pink-800/40 hover:border-pink-700',
+  cyan: 'border-cyan-800/40 hover:border-cyan-700', red: 'border-red-800/40 hover:border-red-700',
 }
 const BG: Record<string, string> = {
-  blue: 'bg-blue-950/20', purple: 'bg-purple-950/20',
-  yellow: 'bg-yellow-950/20', green: 'bg-green-950/20',
-  orange: 'bg-orange-950/20', pink: 'bg-pink-950/20',
-  cyan: 'bg-cyan-950/20', red: 'bg-red-950/20',
+  blue: 'bg-blue-950/20', purple: 'bg-purple-950/20', yellow: 'bg-yellow-950/20', green: 'bg-green-950/20',
+  orange: 'bg-orange-950/20', pink: 'bg-pink-950/20', cyan: 'bg-cyan-950/20', red: 'bg-red-950/20',
 }
 
 export default function Home() {
   const navigate = useNavigate()
-  const [loadingDemo, setLoadingDemo] = useState(false)
+  const [loadingDemo, setLoadingDemo]   = useState(false)
+  const [demoError,   setDemoError]     = useState<string | null>(null)
   const [backendAlive, setBackendAlive] = useState<boolean | null>(null)
 
   useEffect(() => {
@@ -119,17 +75,40 @@ export default function Home() {
 
   const handleDemo = async () => {
     setLoadingDemo(true)
+    setDemoError(null)
     try {
       const blob = new Blob([DEMO_CSV], { type: 'text/csv' })
       const file = new File([blob], 'demo_portfolio.csv', { type: 'text/csv' })
       const form = new FormData()
       form.append('file', file)
-      const res  = await fetch(`${API_BASE}/api/portfolio/upload`, { method: 'POST', body: form })
+
+      const res = await fetch(`${API_BASE}/api/portfolio/upload`, {
+        method: 'POST',
+        body:   form,
+        signal: AbortSignal.timeout(45000),
+      })
+
+      if (!res.ok) throw new Error(`Upload failed (${res.status})`)
+
       const data = await res.json()
-      if (data.holdings) sessionStorage.setItem('portfolio_data', JSON.stringify(data))
-      navigate('/dashboard')
-    } catch {
-      navigate('/dashboard')
+
+      if (!data || !Array.isArray(data.holdings) || data.holdings.length === 0) {
+        throw new Error('Demo data was empty — please try again')
+      }
+
+      // Persist for Dashboard to read on mount
+      sessionStorage.setItem('portfolio_data', JSON.stringify(data))
+
+      // Also pass via router state — avoids any race where Dashboard
+      // mounts and checks sessionStorage before it's flushed
+      navigate('/dashboard', { state: { demoData: data } })
+    } catch (e: any) {
+      const isTimeout = e?.name === 'TimeoutError' || e?.name === 'AbortError'
+      setDemoError(
+        isTimeout
+          ? 'Backend is waking up (cold start) — please try again in ~20s'
+          : e?.message || 'Could not load demo portfolio. Please try again.'
+      )
     } finally {
       setLoadingDemo(false)
     }
@@ -137,7 +116,6 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-gray-950 text-white">
-      {/* Navbar for this page only — no props needed (no live portfolio here) */}
       <Navbar />
 
       {/* ── Hero ─────────────────────────────────────────────── */}
@@ -169,7 +147,7 @@ export default function Home() {
           </div>
         )}
 
-        <div className="flex flex-col sm:flex-row items-center justify-center gap-3 mb-8">
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-3 mb-3">
           <button
             onClick={handleDemo}
             disabled={loadingDemo}
@@ -189,7 +167,14 @@ export default function Home() {
           </button>
         </div>
 
-        <div className="flex flex-wrap items-center justify-center gap-4 text-xs text-gray-600">
+        {demoError && (
+          <div className="flex items-center justify-center gap-2 text-red-400 text-xs mb-3 max-w-md mx-auto bg-red-950/30 border border-red-800/40 rounded-xl px-4 py-2">
+            <AlertTriangle size={12} className="shrink-0" />
+            {demoError}
+          </div>
+        )}
+
+        <div className="flex flex-wrap items-center justify-center gap-4 text-xs text-gray-600 mt-3">
           <span className="flex items-center gap-1"><CheckCircle size={11} /> No signup required for demo</span>
           <span className="flex items-center gap-1"><CheckCircle size={11} /> Real NSE market data</span>
           <span className="flex items-center gap-1"><CheckCircle size={11} /> Free forever</span>
@@ -218,8 +203,7 @@ export default function Home() {
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {FEATURES.map(f => (
-            <div key={f.title}
-              className={`border rounded-2xl p-5 transition-all duration-200 hover:scale-[1.01] ${BORDER[f.color]} ${BG[f.color]}`}>
+            <div key={f.title} className={`border rounded-2xl p-5 transition-all duration-200 hover:scale-[1.01] ${BORDER[f.color]} ${BG[f.color]}`}>
               <div className="flex items-start justify-between mb-3">
                 <div className="w-9 h-9 bg-gray-800/60 rounded-xl flex items-center justify-center">{f.icon}</div>
                 <span className="text-xs bg-gray-800 text-gray-400 px-2 py-0.5 rounded-full">{f.badge}</span>
@@ -240,7 +224,7 @@ export default function Home() {
               { step: '01', title: 'Upload Portfolio',  desc: 'CSV, Excel, Zerodha or Groww export. AI validates and enriches symbols automatically.', icon: '📁' },
               { step: '02', title: 'Real-time Analysis', desc: 'Risk metrics, P&L, sector allocation computed instantly from live market data.', icon: '📊' },
               { step: '03', title: 'ML Predictions',    desc: '3-model ensemble forecasts 30-day price with confidence bands and reliability grade.', icon: '🧠' },
-              { step: '04', title: 'Act on Insights',   desc: 'AI advisor builds an optimised portfolio. Tax engine shows harvest opportunities.', icon: '✅' },
+              { step: '04', title: 'Act on Insights',   desc: 'AI advisor builds an evidence-backed portfolio. Tax engine shows harvest opportunities.', icon: '✅' },
             ].map(s => (
               <div key={s.step}>
                 <div className="text-4xl mb-4">{s.icon}</div>
@@ -299,8 +283,7 @@ export default function Home() {
             <span className="text-white font-bold">PortfolioAI</span>
           </div>
           <div className="flex items-center gap-4">
-            <a href="https://github.com/abhinavsharma11pix/portfolio-analyzer"
-              target="_blank" rel="noopener noreferrer"
+            <a href="https://github.com/abhinavsharma11pix/portfolio-analyzer" target="_blank" rel="noopener noreferrer"
               className="flex items-center gap-1.5 text-gray-500 hover:text-white text-sm transition-colors">
               GitHub <ExternalLink size={11} />
             </a>

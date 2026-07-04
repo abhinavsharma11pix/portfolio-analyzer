@@ -1,32 +1,29 @@
 /**
- * components/PortfolioScoreCard.tsx — Complete file. (NEW — Day 2)
- * Headline portfolio health score from /api/portfolio/insights.
- * Shows grade (A–F), score, and 3 sub-scores.
- *
- * Usage in Dashboard.tsx:
- *   import PortfolioScoreCard from './components/PortfolioScoreCard'
- *   <PortfolioScoreCard insights={insightsData} />
- *   (insightsData is the response from POST /api/portfolio/insights)
+ * components/PortfolioScoreCard.tsx — Complete file.
+ * Fixed: all numeric fields now null-safe via safeNum() before .toFixed()/math.
  */
 import { Shield, TrendingUp, PieChart, Zap } from 'lucide-react'
 
 interface ScoreBreakdown {
-  diversification_score?: number
-  momentum_score?:        number
-  risk_score?:            number
-  quality_score?:         number
+  diversification_score?: number | null
+  momentum_score?:        number | null
+  risk_score?:             number | null
+  quality_score?:          number | null
 }
-
 interface PortfolioScore {
-  total_score:       number
-  grade:             string
-  grade_color:       string
-  breakdown?:        ScoreBreakdown
+  total_score?: number | null
+  grade?:       string | null
+  grade_color?: string | null
+  breakdown?:   ScoreBreakdown | null
+}
+interface Props {
+  insights:  { portfolio_score?: PortfolioScore | null; [key: string]: any } | null
+  className?: string
 }
 
-interface Props {
-  insights:  { portfolio_score?: PortfolioScore; [key: string]: any } | null
-  className?: string
+function safeNum(v: unknown, fallback = 0): number {
+  const n = Number(v)
+  return Number.isFinite(n) ? n : fallback
 }
 
 const GRADE_CONFIG: Record<string, { bg: string; border: string; text: string; label: string }> = {
@@ -41,27 +38,26 @@ const GRADE_CONFIG: Record<string, { bg: string; border: string; text: string; l
 function MiniBar({ value, color }: { value: number; color: string }) {
   return (
     <div className="flex-1 bg-gray-800/60 rounded-full h-1.5 overflow-hidden">
-      <div
-        className={`h-full ${color} rounded-full transition-all duration-700`}
-        style={{ width: `${Math.min(100, Math.max(0, value))}%` }}
-      />
+      <div className={`h-full ${color} rounded-full transition-all duration-700`}
+        style={{ width: `${Math.min(100, Math.max(0, value))}%` }} />
     </div>
   )
 }
 
 export default function PortfolioScoreCard({ insights, className = '' }: Props) {
-  if (!insights?.portfolio_score) return null
+  const ps = insights?.portfolio_score
+  if (!ps) return null
 
-  const ps     = insights.portfolio_score
-  const grade  = ps.grade?.replace('text-', '').split('-')[0]?.toUpperCase() ?? 'B'
-  const config = GRADE_CONFIG[grade] ?? GRADE_CONFIG['B']
-  const score  = Math.round(ps.total_score ?? 0)
-  const bd     = ps.breakdown ?? {}
+  const rawGrade = (ps.grade ?? 'B').toString()
+  const grade    = (rawGrade.replace('text-', '').split('-')[0] || 'B').toUpperCase()
+  const config   = GRADE_CONFIG[grade] ?? GRADE_CONFIG['B']
+  const score    = Math.round(safeNum(ps.total_score))
+  const bd       = ps.breakdown ?? {}
 
   const subScores = [
-    { label: 'Diversification', value: (bd.diversification_score ?? 0) * 100, icon: <PieChart size={11} />,   color: 'bg-blue-500' },
-    { label: 'Momentum',        value: (bd.momentum_score ?? 0) * 100,         icon: <TrendingUp size={11} />, color: 'bg-green-500' },
-    { label: 'Risk Quality',    value: (bd.risk_score ?? 0) * 100,             icon: <Shield size={11} />,     color: 'bg-purple-500' },
+    { label: 'Diversification', value: safeNum(bd.diversification_score) * 100, icon: <PieChart size={11} />,   color: 'bg-blue-500' },
+    { label: 'Momentum',        value: safeNum(bd.momentum_score) * 100,         icon: <TrendingUp size={11} />, color: 'bg-green-500' },
+    { label: 'Risk Quality',    value: safeNum(bd.risk_score) * 100,             icon: <Shield size={11} />,     color: 'bg-purple-500' },
   ].filter(s => s.value > 0)
 
   return (
@@ -91,9 +87,7 @@ export default function PortfolioScoreCard({ insights, className = '' }: Props) 
               <span className="text-gray-500">{s.icon}</span>
               <span className="text-gray-500 text-xs w-24 shrink-0">{s.label}</span>
               <MiniBar value={s.value} color={s.color} />
-              <span className="text-gray-600 text-xs w-7 text-right tabular-nums">
-                {Math.round(s.value)}
-              </span>
+              <span className="text-gray-600 text-xs w-7 text-right tabular-nums">{Math.round(s.value)}</span>
             </div>
           ))}
         </div>
