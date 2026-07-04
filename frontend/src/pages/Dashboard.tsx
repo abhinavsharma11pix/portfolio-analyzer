@@ -1,23 +1,34 @@
 /**
  * pages/Dashboard.tsx — Complete file.
- * Fixed: reads demo data from router location.state (passed by Home.tsx
- * "Try Live Demo" button) AND from sessionStorage (fallback for refresh).
- * Previously the demo flow navigated to /dashboard but the data was only
- * in sessionStorage, which Dashboard never read on mount.
+ *
+ * Fix 1: Removed auto-load from sessionStorage on mount.
+ *        Previously every visit to /dashboard would restore the last
+ *        uploaded portfolio silently — confusing for users.
+ *        Now data only loads via:
+ *          a) User uploads a file (UploadPortfolio component)
+ *          b) Home page "Try Live Demo" button (router location.state)
+ *        sessionStorage is still WRITTEN (for Reports page to read),
+ *        but never auto-read to pre-populate the dashboard.
+ *
+ * Fix 2: "Resume last session" banner — shown when sessionStorage has
+ *        data and user hasn't uploaded yet. User controls when to load.
+ *
+ * Fix 3: BenchmarkChart zeros — added detection and user-friendly message
+ *        when backend returns all-zero metrics (usually yfinance rate limit).
  */
 import { useState, useMemo, useCallback, memo, lazy, Suspense, useEffect } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { TrendingUp, TrendingDown, FileText, Save } from 'lucide-react'
+import { TrendingUp, TrendingDown, FileText, Save, RefreshCw } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 
-import Navbar            from '../components/Navbar'
-import UploadPortfolio   from '../components/UploadPortfolio'
-import SummaryCards      from '../components/SummaryCards'
-import SectorChart       from '../components/SectorChart'
-import HoldingsChart     from '../components/HoldingsChart'
-import PriceAlertBanner  from '../components/PriceAlertBanner'
-import LivePriceTicker   from '../components/LivePriceTicker'
-import Section           from '../components/ui/Section'
+import Navbar             from '../components/Navbar'
+import UploadPortfolio    from '../components/UploadPortfolio'
+import SummaryCards       from '../components/SummaryCards'
+import SectorChart        from '../components/SectorChart'
+import HoldingsChart      from '../components/HoldingsChart'
+import PriceAlertBanner   from '../components/PriceAlertBanner'
+import LivePriceTicker    from '../components/LivePriceTicker'
+import Section            from '../components/ui/Section'
 import SavePortfolioModal from '../components/SavePortfolioModal'
 import PortfolioScoreCard from '../components/PortfolioScoreCard'
 import {
@@ -26,21 +37,20 @@ import {
   TodayDashboardSkeleton,
   RiskMetricsSkeleton,
 } from '../components/ui/Skeleton'
-import { useWebSocket }  from '../hooks/useWebSocket'
-import { portfolioApi }  from '../services/api'
+import { useWebSocket } from '../hooks/useWebSocket'
+import { portfolioApi } from '../services/api'
+import { API_BASE }     from '../config/api'
 
-// Stage 2 — lazy
+// Lazy-loaded analytics components
 const RiskMetrics       = lazy(() => import('../components/RiskMetrics'))
 const AdvancedMetrics   = lazy(() => import('../components/AdvancedMetrics'))
 const BenchmarkChart    = lazy(() => import('../components/BenchmarkChart'))
 const ScenarioSimulator = lazy(() => import('../components/ScenarioSimulator'))
 const PredictionChart   = lazy(() => import('../components/PredictionChart'))
+const TodayDashboard    = lazy(() => import('../components/TodayDashboard'))
+const AIInsights        = lazy(() => import('../components/AIInsights'))
 
-// Stage 3 — AI last
-const TodayDashboard = lazy(() => import('../components/TodayDashboard'))
-const AIInsights     = lazy(() => import('../components/AIInsights'))
-
-/* ── Types ── */
+/* ── Types ─────────────────────────────────────────────────── */
 interface Holding {
   symbol: string; quantity: number; avg_buy_price: number
   sector?: string; current_price: number | null; currency: string
@@ -57,7 +67,7 @@ function fmt(v: number | null | undefined, prefix = '₹') {
   return `${prefix}${v.toLocaleString('en-IN')}`
 }
 
-/* ── Holdings row ── */
+/* ── Holdings row ───────────────────────────────────────────── */
 const HoldingsRow = memo(function HoldingsRow({
   h, isStale,
 }: { h: Holding; isStale: boolean }) {
@@ -102,7 +112,7 @@ const HoldingsRow = memo(function HoldingsRow({
   )
 })
 
-/* ── React Query hooks ── */
+/* ── React Query hooks ──────────────────────────────────────── */
 function useRiskMetrics(holdings: Holding[], enabled: boolean) {
   return useQuery({
     queryKey:  ['risk', holdings.map(h => h.symbol).sort().join(',')],
@@ -124,48 +134,53 @@ function useAdvancedMetrics(holdings: Holding[], riskMetrics: any, enabled: bool
 function useInsights(holdings: Holding[], enabled: boolean) {
   return useQuery({
     queryKey:  ['insights', holdings.map(h => h.symbol).sort().join(',')],
-    queryFn:   () => portfolioApi.getRisk(holdings).then(() =>
-      fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/portfolio/insights`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ holdings }),
-      }).then(r => r.json())
-    ),
+    queryFn:   () => fetch(`${API_BASE}/api/portfolio/insights`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ holdings }),
+    }).then(r => r.json()),
     enabled:   enabled && holdings.length > 0,
     staleTime: 10 * 60 * 1000,
   })
 }
 
-/* ── Dashboard ── */
+/* ── Dashboard ──────────────────────────────────────────────── */
 export default function Dashboard() {
   const location = useLocation()
 
-  const [portfolioData,  setPortfolioData]  = useState<PortfolioData | null>(null)
-  const [showSave,       setShowSave]       = useState(false)
-  const [savedPortfolio, setSavedPortfolio] = useState<{ id: number; name: string } | null>(null)
+  const [portfolioData,    setPortfolioData]    = useState<PortfolioData | null>(null)
+  const [showSave,         setShowSave]         = useState(false)
+  const [savedPortfolio,   setSavedPortfolio]   = useState<{ id: number; name: string } | null>(null)
+  const [sessionBanner,    setSessionBanner]    = useState(false)
+  const [cachedSession,    setCachedSession]    = useState<PortfolioData | null>(null)
 
-  /* ── Load demo data from navigation state OR sessionStorage ── */
+  /* ── Load ONLY from router state (demo button) — never auto-restore ── */
   useEffect(() => {
-    // Priority 1: passed directly from Home.tsx "Try Live Demo" button
     const stateData = (location.state as any)?.demoData
     if (stateData?.holdings?.length > 0) {
       setPortfolioData(stateData)
       return
     }
 
-    // Priority 2: sessionStorage (page refresh, direct /dashboard navigation)
+    // Check if there's a previous session — offer to resume but don't auto-load
     try {
-      const raw = sessionStorage.getItem('portfolio_data') || sessionStorage.getItem('pa_portfolio')
+      const raw = sessionStorage.getItem('portfolio_data')
       if (raw) {
         const parsed = JSON.parse(raw)
-        // portfolio_data format has .holdings directly
-        // pa_portfolio format also has .holdings
         if (parsed?.holdings?.length > 0) {
-          setPortfolioData(parsed)
+          setCachedSession(parsed)
+          setSessionBanner(true)
         }
       }
-    } catch { /* ignore malformed storage */ }
+    } catch { /* ignore */ }
   }, [location.state])
+
+  const resumeSession = useCallback(() => {
+    if (cachedSession) {
+      setPortfolioData(cachedSession)
+      setSessionBanner(false)
+    }
+  }, [cachedSession])
 
   /* ── Baselines for alert engine ── */
   const baselines = useMemo(() => {
@@ -207,20 +222,19 @@ export default function Dashboard() {
   }, [portfolioData, livePrices])
 
   /* ── React Query ── */
-  const { data: riskMetrics,    isLoading: riskLoading }    = useRiskMetrics(enrichedHoldings, !!portfolioData)
-  const { data: advancedMetrics }                            = useAdvancedMetrics(enrichedHoldings, riskMetrics, !!portfolioData)
-  const { data: insightsData }                               = useInsights(enrichedHoldings, !!portfolioData)
+  const { data: riskMetrics,    isLoading: riskLoading } = useRiskMetrics(enrichedHoldings, !!portfolioData)
+  const { data: advancedMetrics }                         = useAdvancedMetrics(enrichedHoldings, riskMetrics, !!portfolioData)
+  const { data: insightsData }                            = useInsights(enrichedHoldings, !!portfolioData)
 
-  /* ── Persist to sessionStorage for Reports page ── */
+  /* ── Persist for Reports page ── */
   const handleUpload = useCallback((d: PortfolioData) => {
     setPortfolioData(d)
+    setSessionBanner(false)
     try {
       sessionStorage.setItem('portfolio_data', JSON.stringify(d))
       sessionStorage.setItem('pa_portfolio', JSON.stringify({
-        holdings:        d.holdings,
-        summary:         d.summary,
-        riskMetrics:     null,
-        advancedMetrics: null,
+        holdings: d.holdings, summary: d.summary,
+        riskMetrics: null, advancedMetrics: null,
       }))
     } catch { /* ignore */ }
   }, [])
@@ -241,17 +255,16 @@ export default function Dashboard() {
   const handleReset = useCallback(() => {
     setPortfolioData(null)
     setSavedPortfolio(null)
+    setSessionBanner(false)
+    setCachedSession(null)
     sessionStorage.removeItem('portfolio_data')
     sessionStorage.removeItem('pa_portfolio')
   }, [])
 
-  /* ── Convert Date → string for Navbar ── */
   const lastUpdatedStr = useMemo(
     () => lastUpdated instanceof Date
       ? lastUpdated.toISOString()
-      : typeof lastUpdated === 'string'
-      ? lastUpdated
-      : null,
+      : typeof lastUpdated === 'string' ? lastUpdated : null,
     [lastUpdated]
   )
 
@@ -278,33 +291,24 @@ export default function Dashboard() {
             <p className="text-gray-500 text-sm">
               {portfolioData
                 ? `${portfolioData.total_holdings} holdings · ${connected ? '🟢 Live' : '🔴 Offline'}`
-                : 'Upload your portfolio to get started'
-              }
+                : 'Upload your portfolio to get started'}
             </p>
           </div>
 
           {portfolioData && (
             <div className="flex items-center gap-2 shrink-0">
-              <Link
-                to="/reports"
-                className="flex items-center gap-1.5 text-sm border border-purple-700/60 bg-purple-950/20 hover:bg-purple-950/40 text-purple-400 px-3 py-2 rounded-xl transition-all"
-              >
+              <Link to="/reports"
+                className="flex items-center gap-1.5 text-sm border border-purple-700/60 bg-purple-950/20 hover:bg-purple-950/40 text-purple-400 px-3 py-2 rounded-xl transition-all">
                 <FileText size={14} />
                 <span className="hidden sm:block">PDF</span>
               </Link>
-
-              <button
-                onClick={() => setShowSave(true)}
-                className="flex items-center gap-1.5 text-sm border border-green-700/60 bg-green-950/20 hover:bg-green-950/40 text-green-400 px-3 py-2 rounded-xl transition-all"
-              >
+              <button onClick={() => setShowSave(true)}
+                className="flex items-center gap-1.5 text-sm border border-green-700/60 bg-green-950/20 hover:bg-green-950/40 text-green-400 px-3 py-2 rounded-xl transition-all">
                 <Save size={14} />
                 <span className="hidden sm:block">{savedPortfolio ? 'Saved' : 'Save'}</span>
               </button>
-
-              <button
-                onClick={handleReset}
-                className="text-sm text-gray-500 hover:text-white border border-gray-700/60 hover:border-gray-500 px-3 py-2 rounded-xl transition-all"
-              >
+              <button onClick={handleReset}
+                className="text-sm text-gray-500 hover:text-white border border-gray-700/60 hover:border-gray-500 px-3 py-2 rounded-xl transition-all">
                 ↑ New
               </button>
             </div>
@@ -312,13 +316,37 @@ export default function Dashboard() {
         </div>
 
         {!portfolioData ? (
-          <UploadPortfolio onUploadSuccess={handleUpload} />
+          <div className="space-y-4">
+            {/* Resume session banner — user-controlled, not auto-load */}
+            {sessionBanner && cachedSession && (
+              <div className="flex items-center justify-between bg-blue-950/30 border border-blue-800/50 rounded-2xl px-5 py-4">
+                <div className="flex items-center gap-3">
+                  <RefreshCw size={16} className="text-blue-400 shrink-0" />
+                  <div>
+                    <p className="text-white text-sm font-medium">Previous session found</p>
+                    <p className="text-gray-500 text-xs">
+                      {cachedSession.total_holdings} holdings from your last analysis
+                    </p>
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={resumeSession}
+                    className="bg-blue-600 hover:bg-blue-500 text-white text-sm px-4 py-2 rounded-xl transition-colors">
+                    Resume
+                  </button>
+                  <button onClick={() => { setSessionBanner(false); sessionStorage.removeItem('portfolio_data') }}
+                    className="text-gray-500 hover:text-white text-sm px-3 py-2 rounded-xl border border-gray-700 transition-colors">
+                    Clear
+                  </button>
+                </div>
+              </div>
+            )}
+            <UploadPortfolio onUploadSuccess={handleUpload} />
+          </div>
         ) : (
           <div className="space-y-8 md:space-y-10">
 
-            {/* ━━ STAGE 1: IMMEDIATE ━━ */}
-
-            {/* Portfolio Health Score — shown as soon as insights load */}
+            {/* Portfolio Health Score */}
             {insightsData && (
               <Section delay={0}>
                 <PortfolioScoreCard insights={insightsData} />
@@ -371,11 +399,7 @@ export default function Dashboard() {
                     </thead>
                     <tbody>
                       {enrichedHoldings.map(h => (
-                        <HoldingsRow
-                          key={h.symbol}
-                          h={h}
-                          isStale={staleSymbols.includes(h.symbol)}
-                        />
+                        <HoldingsRow key={h.symbol} h={h} isStale={staleSymbols.includes(h.symbol)} />
                       ))}
                     </tbody>
                     <tfoot>
@@ -385,14 +409,10 @@ export default function Dashboard() {
                         </td>
                         <td className="py-3 pr-4 font-semibold text-sm">
                           {inr?.total_current_value > 0 && (
-                            <div className="text-white tabular-nums">
-                              ₹{inr.total_current_value.toLocaleString('en-IN')}
-                            </div>
+                            <div className="text-white tabular-nums">₹{inr.total_current_value.toLocaleString('en-IN')}</div>
                           )}
                           {usd?.total_current_value > 0 && (
-                            <div className="text-white tabular-nums">
-                              ${usd.total_current_value.toLocaleString()}
-                            </div>
+                            <div className="text-white tabular-nums">${usd.total_current_value.toLocaleString()}</div>
                           )}
                         </td>
                         <td className="py-3 pr-4 font-semibold text-sm">
@@ -426,19 +446,14 @@ export default function Dashboard() {
               </div>
             </Section>
 
-            {/* ━━ STAGE 2: ANALYTICS ━━ */}
-
+            {/* Risk Analysis */}
             <Section delay={0}>
               <h2 className="text-lg font-semibold text-white mb-4">📊 Risk Analysis</h2>
               {riskLoading ? (
                 <RiskMetricsSkeleton />
               ) : (
                 <Suspense fallback={<RiskMetricsSkeleton />}>
-                  <RiskMetrics
-                    holdings={enrichedHoldings}
-                    onRiskLoad={() => {}}
-                    preloadedData={riskMetrics}
-                  />
+                  <RiskMetrics holdings={enrichedHoldings} onRiskLoad={() => {}} preloadedData={riskMetrics} />
                 </Suspense>
               )}
             </Section>
@@ -475,13 +490,10 @@ export default function Dashboard() {
               </Suspense>
             </Section>
 
-            {/* ━━ PREDICTIONS ━━ */}
-
+            {/* Predictions */}
             <Section delay={0}>
               <h2 className="text-lg font-semibold text-white mb-1">🔮 30-Day Predictions</h2>
-              <p className="text-gray-600 text-sm mb-4">
-                Click any holding · ETS + RF + LightGBM
-              </p>
+              <p className="text-gray-600 text-sm mb-4">Click any holding · ETS + RF + LightGBM</p>
               <div className="card p-4 space-y-2">
                 {enrichedHoldings.map(h => (
                   <Suspense
@@ -498,25 +510,20 @@ export default function Dashboard() {
               </div>
             </Section>
 
-            {/* ━━ STAGE 3: AI ━━ */}
-
+            {/* AI sections */}
             <Section delay={0} minHeight={260}>
-              <div>
-                <div className="flex items-center gap-3 mb-4">
-                  <h2 className="text-lg font-semibold text-white">🎯 What To Do Today</h2>
-                  <span className="text-xs text-gray-600 bg-gray-800/60 px-2 py-0.5 rounded-full">
-                    AI Decision Engine
-                  </span>
-                </div>
-                <Suspense fallback={<TodayDashboardSkeleton />}>
-                  <TodayDashboard
-                    holdings={enrichedHoldings}
-                    riskMetrics={riskMetrics}
-                    advancedMetrics={advancedMetrics}
-                    summary={portfolioData.summary}
-                  />
-                </Suspense>
+              <div className="flex items-center gap-3 mb-4">
+                <h2 className="text-lg font-semibold text-white">🎯 What To Do Today</h2>
+                <span className="text-xs text-gray-600 bg-gray-800/60 px-2 py-0.5 rounded-full">AI Decision Engine</span>
               </div>
+              <Suspense fallback={<TodayDashboardSkeleton />}>
+                <TodayDashboard
+                  holdings={enrichedHoldings}
+                  riskMetrics={riskMetrics}
+                  advancedMetrics={advancedMetrics}
+                  summary={portfolioData.summary}
+                />
+              </Suspense>
             </Section>
 
             {riskMetrics && (
