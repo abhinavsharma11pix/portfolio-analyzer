@@ -1,5 +1,12 @@
+/**
+ * pages/Dashboard.tsx — Complete file.
+ * Fixed: reads demo data from router location.state (passed by Home.tsx
+ * "Try Live Demo" button) AND from sessionStorage (fallback for refresh).
+ * Previously the demo flow navigated to /dashboard but the data was only
+ * in sessionStorage, which Dashboard never read on mount.
+ */
 import { useState, useMemo, useCallback, memo, lazy, Suspense, useEffect } from 'react'
-import { Link} from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { TrendingUp, TrendingDown, FileText, Save } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 
@@ -12,6 +19,7 @@ import PriceAlertBanner  from '../components/PriceAlertBanner'
 import LivePriceTicker   from '../components/LivePriceTicker'
 import Section           from '../components/ui/Section'
 import SavePortfolioModal from '../components/SavePortfolioModal'
+import PortfolioScoreCard from '../components/PortfolioScoreCard'
 import {
   MetricCardSkeleton,
   ChartSkeleton,
@@ -20,9 +28,6 @@ import {
 } from '../components/ui/Skeleton'
 import { useWebSocket }  from '../hooks/useWebSocket'
 import { portfolioApi }  from '../services/api'
-// import PortfolioScoreCard from '../components/PortfolioScoreCard'
-// import { DashboardSkeleton } from '../components/Skeletons'
-// import { useAuth }       from '../context/AuthContext'
 
 // Stage 2 — lazy
 const RiskMetrics       = lazy(() => import('../components/RiskMetrics'))
@@ -116,14 +121,51 @@ function useAdvancedMetrics(holdings: Holding[], riskMetrics: any, enabled: bool
   })
 }
 
+function useInsights(holdings: Holding[], enabled: boolean) {
+  return useQuery({
+    queryKey:  ['insights', holdings.map(h => h.symbol).sort().join(',')],
+    queryFn:   () => portfolioApi.getRisk(holdings).then(() =>
+      fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/portfolio/insights`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ holdings }),
+      }).then(r => r.json())
+    ),
+    enabled:   enabled && holdings.length > 0,
+    staleTime: 10 * 60 * 1000,
+  })
+}
+
 /* ── Dashboard ── */
 export default function Dashboard() {
-  // const navigate         = useNavigate()
-  // const { isLoggedIn }   = useAuth()
+  const location = useLocation()
 
   const [portfolioData,  setPortfolioData]  = useState<PortfolioData | null>(null)
   const [showSave,       setShowSave]       = useState(false)
   const [savedPortfolio, setSavedPortfolio] = useState<{ id: number; name: string } | null>(null)
+
+  /* ── Load demo data from navigation state OR sessionStorage ── */
+  useEffect(() => {
+    // Priority 1: passed directly from Home.tsx "Try Live Demo" button
+    const stateData = (location.state as any)?.demoData
+    if (stateData?.holdings?.length > 0) {
+      setPortfolioData(stateData)
+      return
+    }
+
+    // Priority 2: sessionStorage (page refresh, direct /dashboard navigation)
+    try {
+      const raw = sessionStorage.getItem('portfolio_data') || sessionStorage.getItem('pa_portfolio')
+      if (raw) {
+        const parsed = JSON.parse(raw)
+        // portfolio_data format has .holdings directly
+        // pa_portfolio format also has .holdings
+        if (parsed?.holdings?.length > 0) {
+          setPortfolioData(parsed)
+        }
+      }
+    } catch { /* ignore malformed storage */ }
+  }, [location.state])
 
   /* ── Baselines for alert engine ── */
   const baselines = useMemo(() => {
@@ -167,11 +209,13 @@ export default function Dashboard() {
   /* ── React Query ── */
   const { data: riskMetrics,    isLoading: riskLoading }    = useRiskMetrics(enrichedHoldings, !!portfolioData)
   const { data: advancedMetrics }                            = useAdvancedMetrics(enrichedHoldings, riskMetrics, !!portfolioData)
+  const { data: insightsData }                               = useInsights(enrichedHoldings, !!portfolioData)
 
   /* ── Persist to sessionStorage for Reports page ── */
   const handleUpload = useCallback((d: PortfolioData) => {
     setPortfolioData(d)
     try {
+      sessionStorage.setItem('portfolio_data', JSON.stringify(d))
       sessionStorage.setItem('pa_portfolio', JSON.stringify({
         holdings:        d.holdings,
         summary:         d.summary,
@@ -197,10 +241,11 @@ export default function Dashboard() {
   const handleReset = useCallback(() => {
     setPortfolioData(null)
     setSavedPortfolio(null)
+    sessionStorage.removeItem('portfolio_data')
     sessionStorage.removeItem('pa_portfolio')
   }, [])
 
-  /* ── FIX: convert Date → string for Navbar ── */
+  /* ── Convert Date → string for Navbar ── */
   const lastUpdatedStr = useMemo(
     () => lastUpdated instanceof Date
       ? lastUpdated.toISOString()
@@ -240,7 +285,6 @@ export default function Dashboard() {
 
           {portfolioData && (
             <div className="flex items-center gap-2 shrink-0">
-              {/* PDF Report */}
               <Link
                 to="/reports"
                 className="flex items-center gap-1.5 text-sm border border-purple-700/60 bg-purple-950/20 hover:bg-purple-950/40 text-purple-400 px-3 py-2 rounded-xl transition-all"
@@ -249,18 +293,14 @@ export default function Dashboard() {
                 <span className="hidden sm:block">PDF</span>
               </Link>
 
-              {/* Save Portfolio */}
               <button
                 onClick={() => setShowSave(true)}
                 className="flex items-center gap-1.5 text-sm border border-green-700/60 bg-green-950/20 hover:bg-green-950/40 text-green-400 px-3 py-2 rounded-xl transition-all"
               >
                 <Save size={14} />
-                <span className="hidden sm:block">
-                  {savedPortfolio ? `Saved` : 'Save'}
-                </span>
+                <span className="hidden sm:block">{savedPortfolio ? 'Saved' : 'Save'}</span>
               </button>
 
-              {/* Reset */}
               <button
                 onClick={handleReset}
                 className="text-sm text-gray-500 hover:text-white border border-gray-700/60 hover:border-gray-500 px-3 py-2 rounded-xl transition-all"
@@ -277,6 +317,13 @@ export default function Dashboard() {
           <div className="space-y-8 md:space-y-10">
 
             {/* ━━ STAGE 1: IMMEDIATE ━━ */}
+
+            {/* Portfolio Health Score — shown as soon as insights load */}
+            {insightsData && (
+              <Section delay={0}>
+                <PortfolioScoreCard insights={insightsData} />
+              </Section>
+            )}
 
             <Section delay={0}>
               <SummaryCards summary={portfolioData.summary} />
@@ -423,7 +470,7 @@ export default function Dashboard() {
             )}
 
             <Section delay={0}>
-              <Suspense fallback={<div className="card p-6 h-32 skeleton" />}>
+              <Suspense fallback={<div className="card p-6 h-32 animate-pulse bg-gray-800/30 rounded-2xl" />}>
                 <ScenarioSimulator holdings={enrichedHoldings} />
               </Suspense>
             </Section>
@@ -433,7 +480,7 @@ export default function Dashboard() {
             <Section delay={0}>
               <h2 className="text-lg font-semibold text-white mb-1">🔮 30-Day Predictions</h2>
               <p className="text-gray-600 text-sm mb-4">
-                Click any holding · ARIMA + RF + LightGBM
+                Click any holding · ETS + RF + LightGBM
               </p>
               <div className="card p-4 space-y-2">
                 {enrichedHoldings.map(h => (
@@ -441,7 +488,7 @@ export default function Dashboard() {
                     key={h.symbol}
                     fallback={
                       <div className="border border-gray-800 rounded-xl px-5 py-4">
-                        <div className="skeleton h-4 w-32" />
+                        <div className="h-4 w-32 bg-gray-800 rounded animate-pulse" />
                       </div>
                     }
                   >
@@ -451,7 +498,7 @@ export default function Dashboard() {
               </div>
             </Section>
 
-            {/* ━━ STAGE 3: AI — NEVER BLOCKS ━━ */}
+            {/* ━━ STAGE 3: AI ━━ */}
 
             <Section delay={0} minHeight={260}>
               <div>
@@ -475,7 +522,7 @@ export default function Dashboard() {
             {riskMetrics && (
               <Section delay={0}>
                 <h2 className="text-lg font-semibold text-white mb-4">🧠 AI Insights</h2>
-                <Suspense fallback={<div className="card p-8 skeleton h-48" />}>
+                <Suspense fallback={<div className="card p-8 h-48 animate-pulse bg-gray-800/30 rounded-2xl" />}>
                   <AIInsights
                     holdings={enrichedHoldings}
                     riskMetrics={riskMetrics}
@@ -488,9 +535,7 @@ export default function Dashboard() {
           </div>
         )}
       </div>
-      
 
-      {/* Save Portfolio Modal */}
       {showSave && portfolioData && (
         <SavePortfolioModal
           holdings={enrichedHoldings}

@@ -1,3 +1,9 @@
+"""
+backend/app/services/llm_service.py — Complete file.
+Fixed: pnl_pct (and other floats) can be None even when the key exists.
+       h.get('pnl_pct', 0) returns None if stored as None, not 0.
+       All f-string numeric formatting now goes through _safe_float().
+"""
 import os
 import logging
 from typing import List, Dict
@@ -5,16 +11,22 @@ from groq import Groq
 
 logger = logging.getLogger(__name__)
 
+
+def _safe_float(v, default: float = 0.0) -> float:
+    try:
+        import math
+        f = float(v)
+        return f if math.isfinite(f) else default
+    except (TypeError, ValueError):
+        return default
+
+
 def generate_llm_summary(
-    holdings: List[Dict],
-    risk_metrics: Dict,
-    rule_insights: List[Dict],
-    portfolio_score: Dict
+    holdings:        List[Dict],
+    risk_metrics:    Dict,
+    rule_insights:   List[Dict],
+    portfolio_score: Dict,
 ) -> str:
-    """
-    Use Groq (free) to generate a concise, human-readable portfolio summary.
-    Called ONCE per analysis — very token-efficient.
-    """
     api_key = os.getenv("GROQ_API_KEY")
     if not api_key:
         return generate_fallback_summary(portfolio_score, rule_insights)
@@ -22,36 +34,43 @@ def generate_llm_summary(
     try:
         client = Groq(api_key=api_key)
 
-        # Build minimal context to save tokens
         top_insights = [
             f"- {i['title']}: {i['message']}"
-            for i in rule_insights[:5]  # max 5 insights
+            for i in (rule_insights or [])[:5]
         ]
 
-        holdings_summary = [
-            f"{h['symbol']} ({h.get('sector','?')}): {h.get('pnl_pct', 0):.1f}% P&L"
-            for h in holdings[:10]  # max 10 holdings
-        ]
+        holdings_summary = []
+        for h in (holdings or [])[:10]:
+            sym     = h.get('symbol', '?')
+            sector  = h.get('sector', '?')
+            pnl_pct = _safe_float(h.get('pnl_pct'))   # fix: was h.get('pnl_pct', 0) which returns None when key exists but value is None
+            holdings_summary.append(f"{sym} ({sector}): {pnl_pct:.1f}% P&L")
+
+        total_score  = _safe_float(portfolio_score.get('total_score'), 50)
+        grade_label  = portfolio_score.get('grade_label') or portfolio_score.get('grade') or 'Average'
+        sharpe       = _safe_float(risk_metrics.get('sharpe_ratio'))
+        volatility   = _safe_float(risk_metrics.get('annualized_volatility_pct'))
+        max_drawdown = _safe_float(risk_metrics.get('max_drawdown_pct'))
 
         prompt = f"""You are a professional Indian stock market advisor. Analyze this portfolio and give a 3-4 sentence executive summary.
 
-Portfolio Score: {portfolio_score['total_score']}/100 ({portfolio_score['grade_label']})
-Sharpe Ratio: {risk_metrics.get('sharpe_ratio', 0):.2f}
-Volatility: {risk_metrics.get('annualized_volatility_pct', 0):.1f}%
-Max Drawdown: {risk_metrics.get('max_drawdown_pct', 0):.1f}%
+Portfolio Score: {total_score:.0f}/100 ({grade_label})
+Sharpe Ratio: {sharpe:.2f}
+Volatility: {volatility:.1f}%
+Max Drawdown: {max_drawdown:.1f}%
 
 Holdings: {', '.join(holdings_summary)}
 
 Key Issues Found:
-{chr(10).join(top_insights)}
+{chr(10).join(top_insights) if top_insights else '- No critical issues detected'}
 
 Write a direct, professional 3-4 sentence summary. Mention the portfolio grade, biggest risk, and one clear action. Be specific, not generic."""
 
         response = client.chat.completions.create(
-            model="llama-3.1-8b-instant",  # free, fast
+            model="llama-3.1-8b-instant",
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=200,  # keep it short = save credits
-            temperature=0.3  # consistent, professional tone
+            max_tokens=200,
+            temperature=0.3,
         )
 
         return response.choices[0].message.content.strip()
@@ -62,20 +81,16 @@ Write a direct, professional 3-4 sentence summary. Mention the portfolio grade, 
 
 
 def generate_fallback_summary(portfolio_score: Dict, insights: List[Dict]) -> str:
-    """
-    100% free fallback — generates summary from rules alone.
-    Used when API is unavailable or rate limited.
-    """
-    grade = portfolio_score.get("grade_label", "Average")
-    score = portfolio_score.get("total_score", 50)
-    high_severity = [i for i in insights if i.get("severity") == "high"]
+    grade  = portfolio_score.get("grade_label") or portfolio_score.get("grade") or "Average"
+    score  = _safe_float(portfolio_score.get("total_score"), 50)
+    high   = [i for i in (insights or []) if i.get("severity") == "high"]
 
-    summary = f"Your portfolio scores {score}/100 ({grade}). "
+    summary = f"Your portfolio scores {score:.0f}/100 ({grade}). "
 
-    if high_severity:
-        summary += f"Key concern: {high_severity[0]['message']} "
-        if len(high_severity) > 1:
-            summary += f"Additionally, {high_severity[1]['message'].lower()} "
+    if high:
+        summary += f"Key concern: {high[0]['message']} "
+        if len(high) > 1:
+            summary += f"Additionally, {high[1]['message'].lower()} "
 
     summary += "Review the insights below for specific action items to improve your portfolio health."
     return summary
