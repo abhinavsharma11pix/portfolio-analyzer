@@ -38,6 +38,7 @@ const TodayDashboard    = lazy(() => import('../components/TodayDashboard'))
 const AIInsights        = lazy(() => import('../components/AIInsights'))
 const SavePortfolioModal = lazy(() => import('../components/SavePortfolioModal'))
 const PortfolioScoreCard = lazy(() => import('../components/PortfolioScoreCard'))
+const PriceAlertBanner  = lazy(() => import('../components/PriceAlertBanner'))
 
 // ── Inline skeleton (no external dependency) ──────────────────
 function Skeleton({ className = '' }: { className?: string }) {
@@ -293,17 +294,6 @@ export default function Dashboard() {
     [lastUpdated]
   )
 
-  // ── Handle alerts: PriceAlertBanner may or may not exist ───
-  const AlertBanner = useMemo(() => {
-    try {
-      // Try to dynamically check — if component exists use it
-      return lazy(() => import('../components/PriceAlertBanner').catch(() => ({
-        default: () => null,
-      })))
-    } catch {
-      return () => null
-    }
-  }, [])
 
   const { inr, usd } = portfolioData?.summary ?? {}
 
@@ -317,9 +307,9 @@ export default function Dashboard() {
         holdings={enriched}
       />
 
-      {/* Alert banner — fail silently if component missing */}
+      {/* Alert banner */}
       <Suspense fallback={null}>
-        <AlertBanner alerts={alerts ?? []} onDismiss={safeDismiss} />
+        <PriceAlertBanner alerts={alerts ?? []} onDismiss={safeDismiss} />
       </Suspense>
 
       <div className="max-w-7xl mx-auto px-4 md:px-6 py-8 md:py-12">
