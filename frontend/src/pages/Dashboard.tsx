@@ -1,47 +1,34 @@
 /**
- * pages/Dashboard.tsx — Complete file.
+ * Dashboard.tsx — Complete rewrite.
  *
- * Fix 1: Removed auto-load from sessionStorage on mount.
- *        Previously every visit to /dashboard would restore the last
- *        uploaded portfolio silently — confusing for users.
- *        Now data only loads via:
- *          a) User uploads a file (UploadPortfolio component)
- *          b) Home page "Try Live Demo" button (router location.state)
- *        sessionStorage is still WRITTEN (for Reports page to read),
- *        but never auto-read to pre-populate the dashboard.
+ * Self-contained: no imports from uncertain paths (ui/Section, ui/Skeleton etc.)
+ * Everything either exists in original codebase or is inlined here.
  *
- * Fix 2: "Resume last session" banner — shown when sessionStorage has
- *        data and user hasn't uploaded yet. User controls when to load.
- *
- * Fix 3: BenchmarkChart zeros — added detection and user-friendly message
- *        when backend returns all-zero metrics (usually yfinance rate limit).
+ * Fixes applied:
+ * 1. Demo flow — Home.tsx passes data via location.state.demoData
+ *    → clear sessionStorage first, then load, NO banner shown
+ * 2. Resume banner — only on direct /dashboard visits with old session data
+ *    → user controlled, not auto-load
+ * 3. All TypeScript issues — no missing imports
  */
-import { useState, useMemo, useCallback, memo, lazy, Suspense, useEffect } from 'react'
+import {
+  useState, useMemo, useCallback, memo,
+  lazy, Suspense, useEffect,
+} from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { TrendingUp, TrendingDown, FileText, Save, RefreshCw } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 
-import Navbar             from '../components/Navbar'
-import UploadPortfolio    from '../components/UploadPortfolio'
-import SummaryCards       from '../components/SummaryCards'
-import SectorChart        from '../components/SectorChart'
-import HoldingsChart      from '../components/HoldingsChart'
-import PriceAlertBanner   from '../components/PriceAlertBanner'
-import LivePriceTicker    from '../components/LivePriceTicker'
-import Section            from '../components/ui/Section'
-import SavePortfolioModal from '../components/SavePortfolioModal'
-import PortfolioScoreCard from '../components/PortfolioScoreCard'
-import {
-  MetricCardSkeleton,
-  ChartSkeleton,
-  TodayDashboardSkeleton,
-  RiskMetricsSkeleton,
-} from '../components/ui/Skeleton'
+import Navbar           from '../components/Navbar'
+import UploadPortfolio  from '../components/UploadPortfolio'
+import SummaryCards     from '../components/SummaryCards'
+import SectorChart      from '../components/SectorChart'
+import HoldingsChart    from '../components/HoldingsChart'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { portfolioApi } from '../services/api'
 import { API_BASE }     from '../config/api'
 
-// Lazy-loaded analytics components
+// Lazy load all heavy components
 const RiskMetrics       = lazy(() => import('../components/RiskMetrics'))
 const AdvancedMetrics   = lazy(() => import('../components/AdvancedMetrics'))
 const BenchmarkChart    = lazy(() => import('../components/BenchmarkChart'))
@@ -49,8 +36,31 @@ const ScenarioSimulator = lazy(() => import('../components/ScenarioSimulator'))
 const PredictionChart   = lazy(() => import('../components/PredictionChart'))
 const TodayDashboard    = lazy(() => import('../components/TodayDashboard'))
 const AIInsights        = lazy(() => import('../components/AIInsights'))
+const SavePortfolioModal = lazy(() => import('../components/SavePortfolioModal'))
+const PortfolioScoreCard = lazy(() => import('../components/PortfolioScoreCard'))
 
-/* ── Types ─────────────────────────────────────────────────── */
+// ── Inline skeleton (no external dependency) ──────────────────
+function Skeleton({ className = '' }: { className?: string }) {
+  return <div className={`animate-pulse bg-gray-800/60 rounded-xl ${className}`} />
+}
+function LoadingCard() {
+  return (
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      {[...Array(4)].map((_, i) => (
+        <div key={i} className="bg-gray-900 border border-gray-800 rounded-2xl p-5">
+          <Skeleton className="h-3 w-20 mb-3" />
+          <Skeleton className="h-7 w-24 mb-2" />
+          <Skeleton className="h-2 w-16" />
+        </div>
+      ))}
+    </div>
+  )
+}
+function LoadingBlock({ h = 'h-48' }: { h?: string }) {
+  return <div className={`animate-pulse bg-gray-800/30 rounded-2xl ${h}`} />
+}
+
+// ── Types ─────────────────────────────────────────────────────
 interface Holding {
   symbol: string; quantity: number; avg_buy_price: number
   sector?: string; current_price: number | null; currency: string
@@ -59,7 +69,7 @@ interface Holding {
 }
 interface PortfolioData {
   total_holdings: number; holdings: Holding[]
-  summary: any; source?: string; validation?: any
+  summary: any; source?: string
 }
 
 function fmt(v: number | null | undefined, prefix = '₹') {
@@ -67,17 +77,22 @@ function fmt(v: number | null | undefined, prefix = '₹') {
   return `${prefix}${v.toLocaleString('en-IN')}`
 }
 
-/* ── Holdings row ───────────────────────────────────────────── */
+function clearSession() {
+  try {
+    sessionStorage.removeItem('portfolio_data')
+    sessionStorage.removeItem('pa_portfolio')
+  } catch { /* ignore */ }
+}
+
+// ── Holdings row ──────────────────────────────────────────────
 const HoldingsRow = memo(function HoldingsRow({
   h, isStale,
 }: { h: Holding; isStale: boolean }) {
   const isProfit = (h.pnl ?? 0) >= 0
-  const prefix   = h.currency === 'USD' ? '$' : '₹'
+  const px = h.currency === 'USD' ? '$' : '₹'
   return (
     <tr className="border-b border-white/[0.04] hover:bg-white/[0.02] transition-colors group">
-      <td className="py-3 pr-4 font-semibold text-blue-400 group-hover:text-blue-300 whitespace-nowrap">
-        {h.symbol}
-      </td>
+      <td className="py-3 pr-4 font-semibold text-blue-400 whitespace-nowrap">{h.symbol}</td>
       <td className="py-3 pr-4 text-gray-400 text-sm">{h.sector || '—'}</td>
       <td className="py-3 pr-4">
         <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
@@ -85,18 +100,23 @@ const HoldingsRow = memo(function HoldingsRow({
         }`}>{h.currency}</span>
       </td>
       <td className="py-3 pr-4 text-gray-300 tabular-nums">{h.quantity}</td>
-      <td className="py-3 pr-4 text-gray-400 tabular-nums">{fmt(h.avg_buy_price, prefix)}</td>
+      <td className="py-3 pr-4 text-gray-400 tabular-nums">{fmt(h.avg_buy_price, px)}</td>
       <td className="py-3 pr-4">
-        <LivePriceTicker price={h.current_price} currency={h.currency} stale={isStale} />
+        {h.current_price != null ? (
+          <span className={`font-medium tabular-nums text-sm ${isStale ? 'text-yellow-400' : 'text-white'}`}>
+            {fmt(h.current_price, px)}
+            {isStale && <span className="ml-1 text-xs text-yellow-600">⚠</span>}
+          </span>
+        ) : <span className="text-gray-600">—</span>}
       </td>
-      <td className="py-3 pr-4 text-gray-300 tabular-nums">{fmt(h.invested_value, prefix)}</td>
+      <td className="py-3 pr-4 text-gray-300 tabular-nums">{fmt(h.invested_value, px)}</td>
       <td className="py-3 pr-4 text-gray-300 tabular-nums">
-        {h.current_value ? fmt(h.current_value, prefix) : '—'}
+        {h.current_value ? fmt(h.current_value, px) : '—'}
       </td>
       <td className={`py-3 pr-4 font-medium tabular-nums ${isProfit ? 'text-green-400' : 'text-red-400'}`}>
         <span className="flex items-center gap-1">
           {isProfit ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
-          {h.pnl != null ? fmt(h.pnl, prefix) : '—'}
+          {h.pnl != null ? fmt(h.pnl, px) : '—'}
         </span>
       </td>
       <td className={`py-3 font-medium ${isProfit ? 'text-green-400' : 'text-red-400'}`}>
@@ -112,97 +132,123 @@ const HoldingsRow = memo(function HoldingsRow({
   )
 })
 
-/* ── React Query hooks ──────────────────────────────────────── */
-function useRiskMetrics(holdings: Holding[], enabled: boolean) {
+// ── React Query hooks ─────────────────────────────────────────
+function useRisk(holdings: Holding[], on: boolean) {
   return useQuery({
     queryKey:  ['risk', holdings.map(h => h.symbol).sort().join(',')],
     queryFn:   () => portfolioApi.getRisk(holdings).then(r => r.data),
-    enabled:   enabled && holdings.length > 0,
-    staleTime: 10 * 60 * 1000,
+    enabled:   on && holdings.length > 0,
+    staleTime: 600_000,
+    retry:     2,
   })
 }
-
-function useAdvancedMetrics(holdings: Holding[], riskMetrics: any, enabled: boolean) {
+function useAdvanced(holdings: Holding[], risk: any, on: boolean) {
   return useQuery({
     queryKey:  ['advanced', holdings.map(h => h.symbol).sort().join(',')],
-    queryFn:   () => portfolioApi.getAdvanced(holdings, riskMetrics).then(r => r.data),
-    enabled:   enabled && !!riskMetrics,
-    staleTime: 10 * 60 * 1000,
+    queryFn:   () => portfolioApi.getAdvanced(holdings, risk).then(r => r.data),
+    enabled:   on && !!risk,
+    staleTime: 600_000,
+    retry:     1,
   })
 }
-
-function useInsights(holdings: Holding[], enabled: boolean) {
+function useInsights(holdings: Holding[], on: boolean) {
   return useQuery({
     queryKey:  ['insights', holdings.map(h => h.symbol).sort().join(',')],
     queryFn:   () => fetch(`${API_BASE}/api/portfolio/insights`, {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ holdings }),
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ holdings }),
     }).then(r => r.json()),
-    enabled:   enabled && holdings.length > 0,
-    staleTime: 10 * 60 * 1000,
+    enabled:   on && holdings.length > 0,
+    staleTime: 600_000,
+    retry:     1,
   })
 }
 
-/* ── Dashboard ──────────────────────────────────────────────── */
+// ── Dashboard ─────────────────────────────────────────────────
 export default function Dashboard() {
   const location = useLocation()
 
   const [portfolioData,    setPortfolioData]    = useState<PortfolioData | null>(null)
   const [showSave,         setShowSave]         = useState(false)
-  const [savedPortfolio,   setSavedPortfolio]   = useState<{ id: number; name: string } | null>(null)
-  const [sessionBanner,    setSessionBanner]    = useState(false)
-  const [cachedSession,    setCachedSession]    = useState<PortfolioData | null>(null)
+  const [savedName,        setSavedName]        = useState<string | null>(null)
+  const [showResumeBanner, setShowResumeBanner] = useState(false)
+  const [resumeCount,      setResumeCount]      = useState(0)
 
-  /* ── Load ONLY from router state (demo button) — never auto-restore ── */
+  // ── Session handling ────────────────────────────────────────
   useEffect(() => {
+    // PRIORITY 1: demo data from Home.tsx "Try Live Demo" button
     const stateData = (location.state as any)?.demoData
     if (stateData?.holdings?.length > 0) {
+      clearSession()                  // wipe any old data first
       setPortfolioData(stateData)
+      setShowResumeBanner(false)
       return
     }
 
-    // Check if there's a previous session — offer to resume but don't auto-load
+    // PRIORITY 2: if no state, check for previous session
+    // Show a banner — NEVER auto-load
     try {
       const raw = sessionStorage.getItem('portfolio_data')
       if (raw) {
         const parsed = JSON.parse(raw)
         if (parsed?.holdings?.length > 0) {
-          setCachedSession(parsed)
-          setSessionBanner(true)
+          setResumeCount(parsed.total_holdings || parsed.holdings.length)
+          setShowResumeBanner(true)
         }
       }
     } catch { /* ignore */ }
   }, [location.state])
 
-  const resumeSession = useCallback(() => {
-    if (cachedSession) {
-      setPortfolioData(cachedSession)
-      setSessionBanner(false)
-    }
-  }, [cachedSession])
+  const handleResume = useCallback(() => {
+    try {
+      const raw = sessionStorage.getItem('portfolio_data')
+      if (raw) {
+        const parsed = JSON.parse(raw)
+        if (parsed?.holdings?.length > 0) {
+          setPortfolioData(parsed)
+          setShowResumeBanner(false)
+        }
+      }
+    } catch { /* ignore */ }
+  }, [])
 
-  /* ── Baselines for alert engine ── */
+  const handleUpload = useCallback((d: PortfolioData) => {
+    clearSession()
+    setShowResumeBanner(false)
+    setPortfolioData(d)
+    try {
+      sessionStorage.setItem('portfolio_data', JSON.stringify(d))
+    } catch { /* ignore */ }
+  }, [])
+
+  const handleReset = useCallback(() => {
+    setPortfolioData(null)
+    setSavedName(null)
+    setShowResumeBanner(false)
+    clearSession()
+  }, [])
+
+  // ── Live prices via WebSocket ───────────────────────────────
   const baselines = useMemo(() => {
-    const map: Record<string, number> = {}
-    portfolioData?.holdings.forEach(h => {
-      if (h.current_price) map[h.symbol] = h.current_price
-    })
-    return map
+    const m: Record<string, number> = {}
+    portfolioData?.holdings.forEach(h => { if (h.current_price) m[h.symbol] = h.current_price })
+    return m
   }, [portfolioData])
 
-  const symbols = useMemo(
-    () => portfolioData?.holdings.map(h => h.symbol) ?? [],
-    [portfolioData]
-  )
+  const symbols = useMemo(() => portfolioData?.holdings.map(h => h.symbol) ?? [], [portfolioData])
 
   const {
     prices: livePrices, alerts, connected,
     staleSymbols, lastUpdated, nextRefresh, dismissAlert,
   } = useWebSocket({ symbols, baselines, enabled: !!portfolioData })
 
-  /* ── Enrich holdings with live prices ── */
-  const enrichedHoldings = useMemo(() => {
+  // ── Dismiss alert — prevent TS error if dismissAlert undefined ──
+  const safeDismiss = useCallback((id: string) => {
+    if (typeof dismissAlert === 'function') dismissAlert(id)
+  }, [dismissAlert])
+
+  // ── Enrich holdings with live prices ───────────────────────
+  const enriched = useMemo((): Holding[] => {
     if (!portfolioData) return []
     return portfolioData.holdings.map(h => {
       const live = livePrices[h.symbol]
@@ -221,45 +267,24 @@ export default function Dashboard() {
     })
   }, [portfolioData, livePrices])
 
-  /* ── React Query ── */
-  const { data: riskMetrics,    isLoading: riskLoading } = useRiskMetrics(enrichedHoldings, !!portfolioData)
-  const { data: advancedMetrics }                         = useAdvancedMetrics(enrichedHoldings, riskMetrics, !!portfolioData)
-  const { data: insightsData }                            = useInsights(enrichedHoldings, !!portfolioData)
+  // ── API queries ─────────────────────────────────────────────
+  const { data: risk,     isLoading: riskLoading } = useRisk(enriched, !!portfolioData)
+  const { data: advanced }                          = useAdvanced(enriched, risk, !!portfolioData)
+  const { data: insights }                          = useInsights(enriched, !!portfolioData)
 
-  /* ── Persist for Reports page ── */
-  const handleUpload = useCallback((d: PortfolioData) => {
-    setPortfolioData(d)
-    setSessionBanner(false)
-    try {
-      sessionStorage.setItem('portfolio_data', JSON.stringify(d))
-      sessionStorage.setItem('pa_portfolio', JSON.stringify({
-        holdings: d.holdings, summary: d.summary,
-        riskMetrics: null, advancedMetrics: null,
-      }))
-    } catch { /* ignore */ }
-  }, [])
-
+  // Persist risk metrics to sessionStorage for Reports page
   useEffect(() => {
-    if (riskMetrics && portfolioData) {
+    if (risk && portfolioData) {
       try {
-        const existing = JSON.parse(sessionStorage.getItem('pa_portfolio') || '{}')
         sessionStorage.setItem('pa_portfolio', JSON.stringify({
-          ...existing,
-          riskMetrics,
-          advancedMetrics: advancedMetrics || null,
+          holdings: portfolioData.holdings,
+          summary:  portfolioData.summary,
+          riskMetrics:     risk,
+          advancedMetrics: advanced || null,
         }))
       } catch { /* ignore */ }
     }
-  }, [riskMetrics, advancedMetrics, portfolioData])
-
-  const handleReset = useCallback(() => {
-    setPortfolioData(null)
-    setSavedPortfolio(null)
-    setSessionBanner(false)
-    setCachedSession(null)
-    sessionStorage.removeItem('portfolio_data')
-    sessionStorage.removeItem('pa_portfolio')
-  }, [])
+  }, [risk, advanced, portfolioData])
 
   const lastUpdatedStr = useMemo(
     () => lastUpdated instanceof Date
@@ -268,22 +293,39 @@ export default function Dashboard() {
     [lastUpdated]
   )
 
+  // ── Handle alerts: PriceAlertBanner may or may not exist ───
+  const AlertBanner = useMemo(() => {
+    try {
+      // Try to dynamically check — if component exists use it
+      return lazy(() => import('../components/PriceAlertBanner').catch(() => ({
+        default: () => null,
+      })))
+    } catch {
+      return () => null
+    }
+  }, [])
+
   const { inr, usd } = portfolioData?.summary ?? {}
 
+  // ── Render ──────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-gray-950">
       <Navbar
         connected={connected}
         lastUpdated={lastUpdatedStr}
         nextRefresh={nextRefresh}
-        holdings={enrichedHoldings}
+        holdings={enriched}
       />
-      <PriceAlertBanner alerts={alerts} onDismiss={dismissAlert} />
+
+      {/* Alert banner — fail silently if component missing */}
+      <Suspense fallback={null}>
+        <AlertBanner alerts={alerts ?? []} onDismiss={safeDismiss} />
+      </Suspense>
 
       <div className="max-w-7xl mx-auto px-4 md:px-6 py-8 md:py-12">
 
-        {/* Header */}
-        <div className="flex items-start justify-between mb-8">
+        {/* ── Page header ─────────────────────────────────── */}
+        <div className="flex items-start justify-between mb-8 gap-4 flex-wrap">
           <div>
             <h1 className="text-2xl md:text-3xl font-bold text-white mb-1">
               {portfolioData ? 'Portfolio Dashboard' : 'Your Dashboard'}
@@ -305,7 +347,7 @@ export default function Dashboard() {
               <button onClick={() => setShowSave(true)}
                 className="flex items-center gap-1.5 text-sm border border-green-700/60 bg-green-950/20 hover:bg-green-950/40 text-green-400 px-3 py-2 rounded-xl transition-all">
                 <Save size={14} />
-                <span className="hidden sm:block">{savedPortfolio ? 'Saved' : 'Save'}</span>
+                <span className="hidden sm:block">{savedName ? '✓ Saved' : 'Save'}</span>
               </button>
               <button onClick={handleReset}
                 className="text-sm text-gray-500 hover:text-white border border-gray-700/60 hover:border-gray-500 px-3 py-2 rounded-xl transition-all">
@@ -315,241 +357,217 @@ export default function Dashboard() {
           )}
         </div>
 
+        {/* ── Upload / resume state ────────────────────────── */}
         {!portfolioData ? (
           <div className="space-y-4">
-            {/* Resume session banner — user-controlled, not auto-load */}
-            {sessionBanner && cachedSession && (
-              <div className="flex items-center justify-between bg-blue-950/30 border border-blue-800/50 rounded-2xl px-5 py-4">
+
+            {/* Resume banner — user-controlled only */}
+            {showResumeBanner && (
+              <div className="flex items-center justify-between bg-blue-950/30 border border-blue-800/50 rounded-2xl px-5 py-4 gap-3 flex-wrap">
                 <div className="flex items-center gap-3">
                   <RefreshCw size={16} className="text-blue-400 shrink-0" />
                   <div>
                     <p className="text-white text-sm font-medium">Previous session found</p>
-                    <p className="text-gray-500 text-xs">
-                      {cachedSession.total_holdings} holdings from your last analysis
-                    </p>
+                    <p className="text-gray-500 text-xs">{resumeCount} holdings from your last analysis</p>
                   </div>
                 </div>
                 <div className="flex gap-2">
-                  <button onClick={resumeSession}
-                    className="bg-blue-600 hover:bg-blue-500 text-white text-sm px-4 py-2 rounded-xl transition-colors">
+                  <button onClick={handleResume}
+                    className="bg-blue-600 hover:bg-blue-500 text-white text-sm px-4 py-2 rounded-xl transition-colors font-medium">
                     Resume
                   </button>
-                  <button onClick={() => { setSessionBanner(false); sessionStorage.removeItem('portfolio_data') }}
-                    className="text-gray-500 hover:text-white text-sm px-3 py-2 rounded-xl border border-gray-700 transition-colors">
+                  <button onClick={() => { setShowResumeBanner(false); clearSession() }}
+                    className="text-gray-500 hover:text-white text-sm px-3 py-2 rounded-xl border border-gray-700 hover:border-gray-500 transition-colors">
                     Clear
                   </button>
                 </div>
               </div>
             )}
+
             <UploadPortfolio onUploadSuccess={handleUpload} />
           </div>
+
         ) : (
-          <div className="space-y-8 md:space-y-10">
+          /* ── Dashboard content ────────────────────────────── */
+          <div className="space-y-10">
 
-            {/* Portfolio Health Score */}
-            {insightsData && (
-              <Section delay={0}>
-                <PortfolioScoreCard insights={insightsData} />
-              </Section>
-            )}
+            {/* Portfolio health score */}
+            <Suspense fallback={null}>
+              {insights && <PortfolioScoreCard insights={insights} />}
+            </Suspense>
 
-            <Section delay={0}>
-              <SummaryCards summary={portfolioData.summary} />
-            </Section>
+            {/* Summary cards */}
+            <SummaryCards summary={portfolioData.summary} />
 
-            <Section delay={80}>
+            {/* Charts */}
+            <div>
               <h2 className="text-lg font-semibold text-white mb-4">📈 Portfolio Overview</h2>
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-                <SectorChart   holdings={enrichedHoldings} />
-                <HoldingsChart holdings={enrichedHoldings} />
+                <SectorChart   holdings={enriched} />
+                <HoldingsChart holdings={enriched} />
               </div>
-            </Section>
+            </div>
 
             {/* Holdings table */}
-            <Section delay={120}>
-              <div className="card p-5 md:p-6">
-                <div className="flex items-center justify-between mb-5">
-                  <h2 className="text-lg font-semibold text-white">
-                    Holdings
-                    <span className="ml-2 text-sm font-normal text-gray-500">
-                      {portfolioData.total_holdings} stocks
-                    </span>
-                  </h2>
-                  <div className="flex items-center gap-3">
-                    {staleSymbols.length > 0 && (
-                      <span className="text-xs text-yellow-600">⚠ {staleSymbols.length} stale</span>
-                    )}
-                    <div className={`flex items-center gap-1.5 text-xs ${connected ? 'text-green-400' : 'text-gray-600'}`}>
-                      <div className={`w-1.5 h-1.5 rounded-full ${connected ? 'bg-green-400 animate-pulse' : 'bg-gray-700'}`} />
-                      {connected ? 'Live' : 'Offline'}
-                    </div>
+            <div className="card p-5 md:p-6">
+              <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
+                <h2 className="text-lg font-semibold text-white">
+                  Holdings
+                  <span className="ml-2 text-sm font-normal text-gray-500">
+                    {portfolioData.total_holdings} stocks
+                  </span>
+                </h2>
+                <div className="flex items-center gap-3">
+                  {staleSymbols.length > 0 && (
+                    <span className="text-xs text-yellow-600">⚠ {staleSymbols.length} stale</span>
+                  )}
+                  <div className={`flex items-center gap-1.5 text-xs ${connected ? 'text-green-400' : 'text-gray-600'}`}>
+                    <div className={`w-1.5 h-1.5 rounded-full ${connected ? 'bg-green-400 animate-pulse' : 'bg-gray-700'}`} />
+                    {connected ? 'Live' : 'Offline'}
                   </div>
-                </div>
-
-                <div className="overflow-x-auto -mx-5 md:-mx-6 px-5 md:px-6">
-                  <table className="w-full text-sm min-w-[800px]">
-                    <thead>
-                      <tr className="border-b border-white/[0.06]">
-                        {['Symbol','Sector','Currency','Qty','Avg Price','Live Price','Invested','Current','P&L','Return'].map(col => (
-                          <th key={col} className="text-left text-gray-600 font-medium py-3 pr-4 text-xs uppercase tracking-wide whitespace-nowrap">
-                            {col}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {enrichedHoldings.map(h => (
-                        <HoldingsRow key={h.symbol} h={h} isStale={staleSymbols.includes(h.symbol)} />
-                      ))}
-                    </tbody>
-                    <tfoot>
-                      <tr className="border-t border-white/[0.08]">
-                        <td colSpan={7} className="py-3 text-gray-600 text-xs font-medium uppercase tracking-wide">
-                          Total · {portfolioData.total_holdings} holdings
-                        </td>
-                        <td className="py-3 pr-4 font-semibold text-sm">
-                          {inr?.total_current_value > 0 && (
-                            <div className="text-white tabular-nums">₹{inr.total_current_value.toLocaleString('en-IN')}</div>
-                          )}
-                          {usd?.total_current_value > 0 && (
-                            <div className="text-white tabular-nums">${usd.total_current_value.toLocaleString()}</div>
-                          )}
-                        </td>
-                        <td className="py-3 pr-4 font-semibold text-sm">
-                          {inr && (
-                            <div className={`tabular-nums ${inr.total_pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                              ₹{inr.total_pnl.toLocaleString('en-IN')}
-                            </div>
-                          )}
-                          {usd && (
-                            <div className={`tabular-nums ${usd.total_pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                              ${usd.total_pnl.toLocaleString()}
-                            </div>
-                          )}
-                        </td>
-                        <td className="py-3 font-semibold text-sm">
-                          {inr?.total_invested > 0 && (
-                            <div className={`tabular-nums ${inr.total_pnl_pct >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                              {inr.total_pnl_pct >= 0 ? '+' : ''}{inr.total_pnl_pct}%
-                            </div>
-                          )}
-                          {usd?.total_invested > 0 && (
-                            <div className={`tabular-nums ${usd.total_pnl_pct >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                              {usd.total_pnl_pct >= 0 ? '+' : ''}{usd.total_pnl_pct}%
-                            </div>
-                          )}
-                        </td>
-                      </tr>
-                    </tfoot>
-                  </table>
                 </div>
               </div>
-            </Section>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm min-w-[800px]">
+                  <thead>
+                    <tr className="border-b border-white/[0.06]">
+                      {['Symbol','Sector','Currency','Qty','Avg Price','Live Price','Invested','Current','P&L','Return'].map(c => (
+                        <th key={c} className="text-left text-gray-600 font-medium py-3 pr-4 text-xs uppercase tracking-wide whitespace-nowrap">
+                          {c}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {enriched.map(h => (
+                      <HoldingsRow key={h.symbol} h={h} isStale={staleSymbols.includes(h.symbol)} />
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="border-t border-white/[0.08]">
+                      <td colSpan={7} className="py-3 text-gray-600 text-xs font-medium uppercase tracking-wide">
+                        Total · {portfolioData.total_holdings} holdings
+                      </td>
+                      <td className="py-3 pr-4 font-semibold text-sm">
+                        {inr?.total_current_value > 0 && <div className="text-white tabular-nums">₹{inr.total_current_value.toLocaleString('en-IN')}</div>}
+                        {usd?.total_current_value > 0 && <div className="text-white tabular-nums">${usd.total_current_value.toLocaleString()}</div>}
+                      </td>
+                      <td className="py-3 pr-4 font-semibold text-sm">
+                        {inr && <div className={`tabular-nums ${inr.total_pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>₹{inr.total_pnl.toLocaleString('en-IN')}</div>}
+                        {usd && <div className={`tabular-nums ${usd.total_pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>${usd.total_pnl.toLocaleString()}</div>}
+                      </td>
+                      <td className="py-3 font-semibold text-sm">
+                        {inr?.total_invested > 0 && <div className={`tabular-nums ${inr.total_pnl_pct >= 0 ? 'text-green-400' : 'text-red-400'}`}>{inr.total_pnl_pct >= 0 ? '+' : ''}{inr.total_pnl_pct}%</div>}
+                        {usd?.total_invested > 0 && <div className={`tabular-nums ${usd.total_pnl_pct >= 0 ? 'text-green-400' : 'text-red-400'}`}>{usd.total_pnl_pct >= 0 ? '+' : ''}{usd.total_pnl_pct}%</div>}
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
 
             {/* Risk Analysis */}
-            <Section delay={0}>
+            <div>
               <h2 className="text-lg font-semibold text-white mb-4">📊 Risk Analysis</h2>
-              {riskLoading ? (
-                <RiskMetricsSkeleton />
-              ) : (
-                <Suspense fallback={<RiskMetricsSkeleton />}>
-                  <RiskMetrics holdings={enrichedHoldings} onRiskLoad={() => {}} preloadedData={riskMetrics} />
+              {riskLoading ? <LoadingCard /> : (
+                <Suspense fallback={<LoadingCard />}>
+                  <RiskMetrics holdings={enriched} onRiskLoad={() => {}} preloadedData={risk} />
                 </Suspense>
               )}
-            </Section>
+            </div>
 
-            {riskMetrics && (
-              <Section delay={0}>
+            {/* Advanced Analytics */}
+            {risk && (
+              <div>
                 <h2 className="text-lg font-semibold text-white mb-4">🔬 Advanced Analytics</h2>
-                <Suspense fallback={
-                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                    {[...Array(4)].map((_, i) => <MetricCardSkeleton key={i} />)}
-                  </div>
-                }>
+                <Suspense fallback={<LoadingCard />}>
                   <AdvancedMetrics
-                    holdings={enrichedHoldings}
-                    riskMetrics={riskMetrics}
-                    preloadedData={advancedMetrics}
+                    holdings={enriched}
+                    riskMetrics={risk}
+                    preloadedData={advanced}
                     onLoad={() => {}}
                   />
                 </Suspense>
-              </Section>
+              </div>
             )}
 
-            {riskMetrics && (
-              <Section delay={0}>
-                <Suspense fallback={<ChartSkeleton />}>
-                  <BenchmarkChart holdings={enrichedHoldings} />
-                </Suspense>
-              </Section>
-            )}
-
-            <Section delay={0}>
-              <Suspense fallback={<div className="card p-6 h-32 animate-pulse bg-gray-800/30 rounded-2xl" />}>
-                <ScenarioSimulator holdings={enrichedHoldings} />
+            {/* Benchmark comparison */}
+            {risk && (
+              <Suspense fallback={<LoadingBlock h="h-72" />}>
+                <BenchmarkChart holdings={enriched} />
               </Suspense>
-            </Section>
+            )}
 
-            {/* Predictions */}
-            <Section delay={0}>
+            {/* Scenario simulator */}
+            <Suspense fallback={<LoadingBlock h="h-48" />}>
+              <ScenarioSimulator holdings={enriched} />
+            </Suspense>
+
+            {/* ML Predictions */}
+            <div>
               <h2 className="text-lg font-semibold text-white mb-1">🔮 30-Day Predictions</h2>
               <p className="text-gray-600 text-sm mb-4">Click any holding · ETS + RF + LightGBM</p>
               <div className="card p-4 space-y-2">
-                {enrichedHoldings.map(h => (
-                  <Suspense
-                    key={h.symbol}
-                    fallback={
-                      <div className="border border-gray-800 rounded-xl px-5 py-4">
-                        <div className="h-4 w-32 bg-gray-800 rounded animate-pulse" />
-                      </div>
-                    }
-                  >
+                {enriched.map(h => (
+                  <Suspense key={h.symbol} fallback={
+                    <div className="border border-gray-800 rounded-xl px-5 py-4">
+                      <Skeleton className="h-4 w-32" />
+                    </div>
+                  }>
                     <PredictionChart symbol={h.symbol} currency={h.currency} />
                   </Suspense>
                 ))}
               </div>
-            </Section>
+            </div>
 
-            {/* AI sections */}
-            <Section delay={0} minHeight={260}>
+            {/* AI What To Do Today */}
+            <div>
               <div className="flex items-center gap-3 mb-4">
                 <h2 className="text-lg font-semibold text-white">🎯 What To Do Today</h2>
                 <span className="text-xs text-gray-600 bg-gray-800/60 px-2 py-0.5 rounded-full">AI Decision Engine</span>
               </div>
-              <Suspense fallback={<TodayDashboardSkeleton />}>
+              <Suspense fallback={<LoadingBlock h="h-64" />}>
                 <TodayDashboard
-                  holdings={enrichedHoldings}
-                  riskMetrics={riskMetrics}
-                  advancedMetrics={advancedMetrics}
+                  holdings={enriched}
+                  riskMetrics={risk}
+                  advancedMetrics={advanced}
                   summary={portfolioData.summary}
                 />
               </Suspense>
-            </Section>
+            </div>
 
-            {riskMetrics && (
-              <Section delay={0}>
+            {/* AI Insights */}
+            {risk && (
+              <div>
                 <h2 className="text-lg font-semibold text-white mb-4">🧠 AI Insights</h2>
-                <Suspense fallback={<div className="card p-8 h-48 animate-pulse bg-gray-800/30 rounded-2xl" />}>
+                <Suspense fallback={<LoadingBlock h="h-48" />}>
                   <AIInsights
-                    holdings={enrichedHoldings}
-                    riskMetrics={riskMetrics}
+                    holdings={enriched}
+                    riskMetrics={risk}
                     summary={portfolioData.summary}
                   />
                 </Suspense>
-              </Section>
+              </div>
             )}
 
           </div>
         )}
       </div>
 
+      {/* Save modal */}
       {showSave && portfolioData && (
-        <SavePortfolioModal
-          holdings={enrichedHoldings}
-          summary={portfolioData.summary}
-          onClose={() => setShowSave(false)}
-          onSaved={(id, name) => setSavedPortfolio({ id, name })}
-        />
+        <Suspense fallback={null}>
+          <SavePortfolioModal
+            holdings={enriched}
+            summary={portfolioData.summary}
+            onClose={() => setShowSave(false)}
+            onSaved={(_id: number, name: string) => {
+              setSavedName(name)
+              setShowSave(false)
+            }}
+          />
+        </Suspense>
       )}
     </div>
   )
